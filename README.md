@@ -5,7 +5,7 @@ de `docs/modelagem` e das tarefas 1–11 do checklist do MVP. Java 21, Spring Bo
 Maven, Spring Data JPA, Flyway, Spring Security e PostgreSQL 17.
 
 Regras atuais: publicações sem teto diário, contas sempre públicas para usuários
-autenticados, restaurantes selecionados no Google Places API (New) com foco no MVP em São Luís
+autenticados, catálogo local de restaurantes em São Luís com Overture, cadastro próprio e ampliação pelo Google Places
 e fotos 3:4 com armazenamento privado, fila persistente de moderação automática e revisão administrativa.
 A suíte automatizada usa HTTP simulado; verificações ao vivo de desenvolvimento são separadas
 e dependem de credenciais do backend. Consulte as evidências datadas em `docs/`.
@@ -14,6 +14,11 @@ Em 20/10/2026, V1/V2/V3 foram aplicadas ao PostgreSQL local, a carga demonstrati
 foi conferida após reinício, Places foi validado ao vivo com a chave de demonstração e
 os módulos de fotos e moderação (tarefas 10 e 11) foram implementados e verificados.
 Veja [resultados e comandos de retomada](docs/persistencia-local-2026-10-20.md).
+
+Em 22/10/2026, o catálogo local passou a aceitar cadastros provisórios, revisão por UUID
+de conta, importações Overture e prevenção de duplicatas. A ampliação Google tem teto
+de 100 chamadas/dia persistido no banco. Veja o [contrato do catálogo](docs/catalogo-restaurantes.md)
+e as [evidências atuais](docs/verificacao-catalogo-2026-10-22.md).
 
 ## Executar localmente
 
@@ -40,7 +45,7 @@ automaticamente pelo Spring nem pelos scripts de teste. Para desligar o Google,
 defina `JAMBU_GOOGLE_PLACES_HABILITADO=false` no processo.
 
 O seed manual antigo não roda mais, inclusive no perfil `dev`. Cadastre usuários
-pela API e selecione restaurantes pelo fluxo Places. Não existe usuário/senha padrão.
+pela API e selecione no catálogo local ou use o cadastro próprio. Não existe usuário/senha padrão.
 As migrações rodam automaticamente ao iniciar a aplicação; Hibernate apenas valida
 o esquema. **Antes de iniciar em outro banco existente**, siga o
 [plano da V2 e dos legados](docs/places-posts-publicos.md). Não use fixtures SQL dos
@@ -110,6 +115,8 @@ globais nem interfaces de service sem necessidade. `Dish` é persistido pelo agr
 | `JAMBU_TEST_DB_URL`, `JAMBU_TEST_DB_USER`, `JAMBU_TEST_DB_PASSWORD` | Banco isolado de testes; obrigatórias para `mvn verify` direto |
 | `JAMBU_GOOGLE_PLACES_HABILITADO` | `false`; ativação explícita |
 | `JAMBU_GOOGLE_PLACES_API_KEY` | Vazia; somente no servidor, necessária ao habilitar |
+| `JAMBU_GOOGLE_PLACES_LIMITE_DIA` | 100 chamadas/dia, contando sugestões e detalhes; 0 bloqueia chamadas |
+| `JAMBU_REVISORES_RESTAURANTES` | UUIDs das contas revisoras, separados por vírgula; vazio não concede acesso |
 | `JAMBU_GOOGLE_PLACES_TIMEOUT` | `PT3S`, até `PT30S` |
 | `JAMBU_GOOGLE_PLACES_BASE_URL` | `https://places.googleapis.com/v1/`; override apenas para simulador HTTP em `127.0.0.1` |
 | `JAMBU_FOTOS_DIRETORIO_LOCAL` | `.local/storage-fotos`; diretório privado local para binários normalizados |
@@ -125,12 +132,12 @@ configuráveis; começam em 24 horas e 20 tentativas por IP/minuto.
 O exemplo de variáveis está em [.env.example](.env.example). Configure o ambiente
 do processo ou `.env.local` para `iniciar-dev.ps1`. O Spring não carrega dotenv
 sozinho. Não existe mais
-variável de limite diário. Para Places ausente/desativado, busca/seleção retornam 503;
-Meals, idempotência e dados próprios continuam disponíveis.
+variável de limite diário de Meals. Com Places ausente/desativado, a busca retorna
+estado externo e mantém sugestões locais/cadastro manual disponíveis.
 
 ## Carga demonstrativa local
 
-Primeiro, selecione um restaurante pelo fluxo Places e copie seu UUID local.
+Primeiro, selecione ou cadastre um restaurante e copie seu UUID local.
 O script abaixo cria duas contas fictícias, um seguimento e três Meals com quatro
 Dishes. Ele usa somente endpoints normais, não cadastra restaurantes manualmente,
 não consulta Google e é restrito a `http://127.0.0.1`. O texto das Meals identifica
@@ -166,7 +173,7 @@ Consultas de negócio exigem Bearer. O fluxo permite cadastrar, entrar, seguir,
 selecionar restaurante, publicar Meals, consultar timeline e editar/excluir.
 Seguir é imediato. Consultar perfil ou Meal de outra conta não exige segui-la;
 a timeline continua restrita a próprias e seguidas. Novas Meals usam restaurante
-validado e snapshots com UUID/placeId, sem nomes/endereço externos.
+local selecionável, inclusive provisório, e snapshots com UUID/placeId, sem dados Google.
 O link de compartilhamento aponta inicialmente para o detalhe JSON autenticado;
 a interface web poderá substituir a URL base.
 

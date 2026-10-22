@@ -1,7 +1,6 @@
 package com.jambuapp.api.restaurante;
 
 import java.math.*;
-import java.time.Clock;
 import java.util.*;
 import com.jambuapp.api.comum.RegraNegocioException;
 import com.jambuapp.api.meal.MealRepository;
@@ -14,30 +13,32 @@ import org.springframework.transaction.annotation.Transactional;
 public class RestauranteLocalService {
     private final RestauranteRepository restaurantes;
     private final MealRepository meals;
-    private final Clock clock;
-    public RestauranteLocalService(RestauranteRepository restaurantes, MealRepository meals, Clock clock) {
-        this.restaurantes = restaurantes;
-        this.meals = meals;
-        this.clock = clock;
-    }
-    @Transactional
-    public DadosLocais registrarSelecaoValidada(String placeId) {
-        // Upsert resolve a corrida sem capturar exceção dentro de transação abortada.
-        restaurantes.registrarSelecao(UUID.randomUUID(), placeId, clock.instant());
-        return dados(restaurantes.findByGooglePlaceId(placeId).orElseThrow());
+    public RestauranteLocalService(RestauranteRepository restaurantes, MealRepository meals) {
+        this.restaurantes = restaurantes; this.meals = meals;
     }
     public DadosLocais consultar(UUID id) {
         return dados(restaurantes.findById(id).orElseThrow(RegraNegocioException::inexistente));
     }
+    public Optional<UUID> porGoogle(String placeId) {
+        return restaurantes.findByGooglePlaceId(placeId).map(Restaurante::getId);
+    }
+    public List<RestauranteResumo> buscar(String termo) {
+        String normalizado = NomesRestaurantes.normalizar(termo);
+        if (normalizado.isEmpty()) return List.of();
+        return restaurantes.buscar(normalizado, normalizado + "%", NomesRestaurantes.consultaPrefixos(normalizado))
+                .stream().map(RestauranteResumo::de).toList();
+    }
     public void exigirExistente(UUID id) {
         if (!restaurantes.existsById(id)) throw RegraNegocioException.inexistente();
     }
+    public void exigirSelecionavel(UUID id) {
+        restaurantes.findById(id).orElseThrow(RegraNegocioException::inexistente).exigirSelecionavel();
+    }
     private DadosLocais dados(Restaurante r) {
         var estatistica = meals.estatisticas(List.of(r.getId())).stream().findFirst().orElse(null);
-        return new DadosLocais(r.getId(), r.getGooglePlaceId(), r.getNome(), r.getEndereco(),
+        return new DadosLocais(RestauranteResumo.de(r),
                 estatistica == null ? null : estatistica.getNotaMedia().setScale(2, RoundingMode.HALF_UP),
                 estatistica == null ? 0 : estatistica.getQuantidade());
     }
-    public record DadosLocais(UUID id, String googlePlaceId, String nomeLegado, String enderecoLegado,
-                             BigDecimal notaMedia, long quantidadeAvaliacoes) {}
+    public record DadosLocais(RestauranteResumo restaurante, BigDecimal notaMedia, long quantidadeAvaliacoes) {}
 }

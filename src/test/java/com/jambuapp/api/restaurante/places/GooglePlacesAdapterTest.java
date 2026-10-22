@@ -1,6 +1,8 @@
 package com.jambuapp.api.restaurante.places;
 
 import static org.assertj.core.api.Assertions.*;
+import static org.mockito.Mockito.*;
+import com.jambuapp.api.restaurante.CotaPlacesService;
 import java.net.*;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -32,6 +34,7 @@ class GooglePlacesAdapterTest {
     volatile String mascara;
     volatile String corpo;
     GooglePlacesAdapter adapter;
+    CotaPlacesService cota = mock(CotaPlacesService.class);
 
     @BeforeEach
     void iniciar() throws Exception {
@@ -56,7 +59,7 @@ class GooglePlacesAdapterTest {
             finally { exchange.close(); }
         });
         servidor.start();
-        adapter = new GooglePlacesAdapter(config(true, "chave-ficticia", Duration.ofSeconds(2)), json);
+        adapter = new GooglePlacesAdapter(config(true, "chave-ficticia", Duration.ofSeconds(2)), json, cota);
     }
     @AfterEach
     void encerrar() {
@@ -126,13 +129,13 @@ class GooglePlacesAdapterTest {
     @Test
     void timeoutTemPrazoFinitoENaoRetornaSucessoSimulado() {
         atraso = 1000;
-        adapter = new GooglePlacesAdapter(config(true, "chave-ficticia", Duration.ofMillis(100)), json);
+        adapter = new GooglePlacesAdapter(config(true, "chave-ficticia", Duration.ofMillis(100)), json, cota);
         assertThatThrownBy(() -> adapter.consultar("ChIJ_teste", null)).isInstanceOfSatisfying(PlacesException.class,
                 ex -> assertThat(ex.getCodigo()).isEqualTo("places_timeout"));
     }
     @Test
     void configuracaoAusenteNaoDisparaHttp() {
-        adapter = new GooglePlacesAdapter(config(true, "", Duration.ofSeconds(1)), json);
+        adapter = new GooglePlacesAdapter(config(true, "", Duration.ofSeconds(1)), json, cota);
         assertThatThrownBy(() -> adapter.consultar("ChIJ_teste", null)).isInstanceOfSatisfying(PlacesException.class,
                 ex -> assertThat(ex.getCodigo()).isEqualTo("places_nao_configurado"));
         assertThat(uri).isNull();
@@ -144,6 +147,18 @@ class GooglePlacesAdapterTest {
         TransactionSynchronizationManager.setActualTransactionActive(true);
         try { assertThatThrownBy(() -> adapter.consultar("ChIJ_teste", null)).isInstanceOf(IllegalStateException.class); }
         finally { TransactionSynchronizationManager.clear(); }
+    }
+    @Test
+    void cotaEsgotadaImpedeHttpEChamadaComErroTambemReserva() {
+        doThrow(new PlacesException(org.springframework.http.HttpStatus.TOO_MANY_REQUESTS,
+                "places_cota_esgotada", "Esgotada")).when(cota).reservar();
+        assertThatThrownBy(() -> adapter.consultar("ChIJ_teste", null)).isInstanceOf(PlacesException.class);
+        assertThat(uri).isNull();
+        reset(cota);
+        status = 503;
+        assertThatThrownBy(() -> adapter.consultar("ChIJ_teste", null)).isInstanceOf(PlacesException.class);
+        verify(cota).reservar();
+        assertThat(uri).isNotNull();
     }
     private PlacesProperties config(boolean habilitado, String key, Duration timeout) {
         return new PlacesProperties(habilitado, key, URI.create("http://127.0.0.1:" + servidor.getAddress().getPort() + "/v1/"), timeout, Set.of("restaurant", "cafe"));

@@ -28,7 +28,7 @@ class MigracaoPlacesTest {
             // A linha SCHEMA, criada pelo Flyway no schema isolado, não é uma migração SQL.
             assertThat(valor(sql, "select count(*) from flyway_schema_history where success = true and type = 'SQL'")).isEqualTo("3");
             var atualizadoV3 = Flyway.configure().dataSource(url, user, password).schemas(schema).defaultSchema(schema)
-                    .locations("classpath:db/migration").ignoreMigrationPatterns("repeatable:missing", "*:future").load();
+                    .locations("classpath:db/migration").ignoreMigrationPatterns("repeatable:missing", "*:future").target("3").load();
             assertThat(atualizadoV3.migrate().migrationsExecuted).isEqualTo(1);
             atualizadoV3.validate();
             assertThat(valor(sql, "select count(*) from flyway_schema_history where success = true and type = 'SQL'")).isEqualTo("4");
@@ -70,7 +70,7 @@ class MigracaoPlacesTest {
             assertThat(atualizadoV2.migrate().migrationsExecuted).isEqualTo(1);
             atualizadoV2.validate();
             var atualizado = Flyway.configure().dataSource(url, user, password).schemas(schema).defaultSchema(schema)
-                    .locations("classpath:db/migration").load();
+                    .locations("classpath:db/migration").target("3").load();
             assertThat(atualizado.migrate().migrationsExecuted).isEqualTo(1);
             atualizado.validate();
             for (String tabelaFoto : new String[]{"fotos", "fotos_perfil", "fotos_dish", "tarefas_moderacao", "registros_moderacao"})

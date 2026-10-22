@@ -2,22 +2,31 @@ package com.jambuapp.api.restaurante;
 
 import java.util.UUID;
 import com.jambuapp.api.meal.*;
+import com.jambuapp.api.seguranca.UsuarioAutenticado;
 import jakarta.validation.Valid;
 import org.springframework.http.*;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/restaurantes")
 public class RestauranteController {
     private final RestauranteService restaurantes;
+    private final CadastroRestauranteService cadastros;
     private final ConsultaMealService meals;
-    public RestauranteController(RestauranteService restaurantes, ConsultaMealService meals) {
-        this.restaurantes = restaurantes;
-        this.meals = meals;
+    public RestauranteController(RestauranteService restaurantes, CadastroRestauranteService cadastros, ConsultaMealService meals) {
+        this.restaurantes = restaurantes; this.cadastros = cadastros; this.meals = meals;
     }
     @GetMapping({"", "/sugestoes"})
-    public ResponseEntity<SugestoesRestaurantesResponse> buscar(@RequestParam String termo, @RequestParam UUID tokenSessao) {
-        return semCache(restaurantes.buscar(termo, tokenSessao));
+    public ResponseEntity<SugestoesRestaurantesResponse> buscar(
+            @AuthenticationPrincipal UsuarioAutenticado principal, @RequestParam String termo,
+            @RequestParam(required = false) UUID tokenSessao, @RequestParam(defaultValue = "false") boolean ampliar) {
+        return semCache(restaurantes.buscar(termo, tokenSessao, ampliar, principal.usuarioId()));
+    }
+    @PostMapping("/cadastros")
+    public ResponseEntity<CadastroRestauranteResponse> cadastrar(@AuthenticationPrincipal UsuarioAutenticado principal,
+            @RequestHeader("Idempotency-Key") String chave, @Valid @RequestBody CadastroRestauranteRequest request) {
+        return semCache(cadastros.cadastrar(principal.usuarioId(), chave, request));
     }
     @PostMapping("/selecoes")
     public ResponseEntity<RestauranteResponse> selecionar(@Valid @RequestBody SelecionarRestauranteRequest request) {

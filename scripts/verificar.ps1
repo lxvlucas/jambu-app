@@ -31,10 +31,6 @@ try {
     & mvn.cmd @argumentosMaven
     if ($LASTEXITCODE -ne 0) { throw 'A verificação Maven falhou.' }
     & (Join-Path $PSScriptRoot 'verificar-ambiente-dev.ps1')
-    # Referência simulada exclusiva do banco efêmero; o smoke nunca chama Google.
-    $fixture = "insert into restaurantes(id, google_place_id, places_validado_em) values ('10000000-0000-0000-0000-000000000001', 'teste_smoke_local', now());"
-    $fixture | & docker exec -i $nomeContainer psql -U jambu_test -d jambu_test -v ON_ERROR_STOP=1
-    if ($LASTEXITCODE -ne 0) { throw 'Falha ao preparar referência do smoke no banco de teste.' }
     & (Join-Path $PSScriptRoot 'verificar-jar.ps1')
 }
 finally {
