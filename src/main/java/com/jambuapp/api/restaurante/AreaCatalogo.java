@@ -1,32 +1,59 @@
 package com.jambuapp.api.restaurante;
 
+import java.util.*;
 import com.jambuapp.api.comum.RegraNegocioException;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
-/** Malha municipal simplificada IBGE 2111300. Não representa endereço postal. */
+/**
+ * Áreas atendidas pelo catálogo, configuradas em jambu.restaurantes.areas e lidas de
+ * /geografia/&lt;nome&gt;.geojson (malhas IBGE). Não representa endereço postal.
+ */
 @Component
 public class AreaCatalogo {
-    private final JsonNode aneis;
-    public AreaCatalogo(JsonMapper json) {
-        try (var stream = getClass().getResourceAsStream("/geografia/sao-luis-ibge.geojson")) {
-            var feature = json.readTree(stream).path("features").get(0);
-            if (!"2111300".equals(feature.path("properties").path("codarea").asString())
-                    || !"Polygon".equals(feature.path("geometry").path("type").asString()))
-                throw new IllegalStateException("Malha municipal inválida.");
-            aneis = feature.path("geometry").path("coordinates");
-        } catch (java.io.IOException ex) { throw new IllegalStateException("Malha municipal indisponível.", ex); }
+    private final List<JsonNode> poligonos = new ArrayList<>();
+    private final String nome;
+    public AreaCatalogo(JsonMapper json, CatalogoProperties config) {
+        List<String> nomes = new ArrayList<>();
+        for (String area : config.areas()) {
+            if (!area.matches("[a-z0-9-]{1,40}")) throw new IllegalStateException("Nome de área inválido: " + area);
+            try (var stream = getClass().getResourceAsStream("/geografia/" + area + ".geojson")) {
+                if (stream == null) throw new IllegalStateException("Malha da área indisponível: " + area);
+                var colecao = json.readTree(stream);
+                if (!colecao.path("nome").isString() || colecao.path("features").isEmpty())
+                    throw new IllegalStateException("Malha da área inválida: " + area);
+                nomes.add(colecao.path("nome").asString());
+                for (JsonNode feature : colecao.path("features")) {
+                    var geometria = feature.path("geometry");
+                    switch (geometria.path("type").asString()) {
+                        case "Polygon" -> poligonos.add(geometria.path("coordinates"));
+                        case "MultiPolygon" -> geometria.path("coordinates").forEach(poligonos::add);
+                        default -> throw new IllegalStateException("Geometria inválida na área: " + area);
+                    }
+                }
+            } catch (java.io.IOException ex) { throw new IllegalStateException("Malha da área indisponível: " + area, ex); }
+        }
+        if (poligonos.isEmpty()) throw new IllegalStateException("Nenhuma área do catálogo configurada.");
+        nome = String.join(" e ", nomes);
     }
+    /** Nome exibido nas mensagens, como "Grande São Luís". */
+    public String nome() { return nome; }
     public boolean contem(double latitude, double longitude) {
         if (!Double.isFinite(latitude) || !Double.isFinite(longitude)) return false;
-        if (!dentro(aneis.get(0), longitude, latitude)) return false;
-        for (int i = 1; i < aneis.size(); i++) if (dentro(aneis.get(i), longitude, latitude)) return false;
-        return true;
+        for (JsonNode aneis : poligonos) {
+            if (!dentro(aneis.get(0), longitude, latitude)) continue;
+            boolean buraco = false;
+            for (int i = 1; i < aneis.size(); i++) if (dentro(aneis.get(i), longitude, latitude)) buraco = true;
+            if (!buraco) return true;
+        }
+        return false;
     }
     public void exigir(double latitude, double longitude) {
         if (!contem(latitude, longitude))
-            throw RegraNegocioException.invalido("O pin deve estar dentro de São Luís no recorte atual do MVP.");
+            throw new RegraNegocioException(HttpStatus.UNPROCESSABLE_CONTENT, "fora_da_area",
+                    "O Jambu ainda está só na " + nome + ".");
     }
     private boolean dentro(JsonNode anel, double x, double y) {
         boolean dentro = false;
