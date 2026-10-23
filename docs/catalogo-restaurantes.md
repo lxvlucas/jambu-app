@@ -60,7 +60,12 @@ verificados antes de provisórios, depois maior semelhança, nome e UUID. Retorn
 }
 ```
 
-Categorias: RESTAURANTE, CAFE, PADARIA, BAR, LANCHONETE, SORVETERIA, PRACA_ALIMENTACAO.
+Categorias aceitas: RESTAURANTE, CAFE, PADARIA, BAR, LANCHONETE, SORVETERIA. `PRACA_ALIMENTACAO`
+continua no enum só para ler dados antigos: cadastro e revisão a recusam com 400 e a importação
+ignora `food_court` (`IGNORADO_CATEGORIA`). Cada pessoa adiciona até `JAMBU_LIMITE_CADASTROS_DIA`
+lugares novos por dia (padrão 5, fuso de São Luís); acima disso, **429 `limite_cadastros`** com
+`Retry-After` em segundos até a meia-noite local. Reutilizar um lugar, repetir uma chave ou receber
+`CONFIRMAR_DUPLICATAS` não conta.
 O pin é validado contra as áreas de `JAMBU_AREAS_CATALOGO` (padrão `grande-sao-luis`: São Luís,
 São José de Ribamar, Paço do Lumiar e Raposa, malha IBGE de qualidade máxima; ver
 `src/main/resources/geografia/README.md`). Pin fora da área retorna **422 `fora_da_area`**

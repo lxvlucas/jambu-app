@@ -47,10 +47,23 @@ public class CatalogoTransacionalService {
         var confirmados = request.distintosConfirmados() == null ? Set.<UUID>of() : request.distintosConfirmados();
         if (candidatos.stream().anyMatch(c -> !confirmados.contains(c.restaurante().id())))
             return new CadastroRestauranteResponse("CONFIRMAR_DUPLICATAS", null, candidatos);
+        exigirLimiteDiario(autor);
         var r = Restaurante.proprio(request.nome(), request.latitude(), request.longitude(), request.categoria(), autor, clock.instant());
         if (googleValidado) r.vincularGoogle(request.googlePlaceId(), clock.instant());
         restaurantes.saveAndFlush(r);
         return concluir(autor, chave, request, r, request.googlePlaceId() != null && !googleValidado ? "CRIADO_SEM_GOOGLE" : "CRIADO");
+    }
+    /** Só lugares realmente novos contam; reutilização e duplicata não. Roda sob o lock do catálogo. */
+    private void exigirLimiteDiario(UUID autor) {
+        var fuso = java.time.ZoneId.of("America/Sao_Paulo");
+        var agora = clock.instant();
+        var inicio = agora.atZone(fuso).toLocalDate().atStartOfDay(fuso);
+        Integer feitos = jdbc.queryForObject("select count(*) from restaurantes where criado_por = ? and criado_em >= ?",
+                Integer.class, autor, java.sql.Timestamp.from(inicio.toInstant()));
+        if (feitos != null && feitos >= config.limiteCadastrosDia())
+            throw RegraNegocioException.limite("limite_cadastros",
+                    "Você já adicionou " + config.limiteCadastrosDia() + " lugares hoje. Tente de novo amanhã.",
+                    java.time.Duration.between(agora, inicio.plusDays(1).toInstant()).getSeconds());
     }
     public List<CadastroRestauranteResponse.Candidato> candidatos(String nome, double lat, double lon, UUID ignorar) {
         double deltaLat = config.raioDuplicataMetros() / 111000.0;
