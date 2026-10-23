@@ -7,5 +7,5 @@ import jakarta.validation.constraints.*;
 
 public record MealRequest(@NotNull UUID restauranteId,
         @NotEmpty @Size(max = 100) List<@NotNull @Valid DishRequest> dishes,
-        @Size(max = 10000) String review, @NotNull Boolean comeriaNovamente,
+        @Size(max = 10000) String review, Boolean comeriaNovamente,
         Modalidade modalidade, LocalDate dataRefeicao, @PositiveOrZero Long versao) {}
