@@ -17,8 +17,10 @@ import org.springframework.web.multipart.support.MissingServletRequestPartExcept
 @RestControllerAdvice
 public class ApiExceptionHandler {
     @ExceptionHandler(RegraNegocioException.class)
-    ProblemDetail negocio(RegraNegocioException ex) {
-        return problema(ex.getStatus(), ex.getCodigo(), ex.getMessage());
+    ResponseEntity<ProblemDetail> negocio(RegraNegocioException ex) {
+        var resposta = ResponseEntity.status(ex.getStatus());
+        if (ex.getRetryAfterSegundos() != null) resposta.header(HttpHeaders.RETRY_AFTER, ex.getRetryAfterSegundos().toString());
+        return resposta.body(problema(ex.getStatus(), ex.getCodigo(), ex.getMessage()));
     }
     @ExceptionHandler(MaxUploadSizeExceededException.class)
     ProblemDetail uploadExcedido(MaxUploadSizeExceededException ex) {

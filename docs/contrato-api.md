@@ -209,11 +209,12 @@ Erros de domínio, validação e segurança usam `application/problem+json`, com
 `status`, `detail` e `codigo`. Bean Validation inclui `campos`, sem ecoar valores
 sensíveis. Códigos relevantes: `dados_invalidos`, `conflito`, `recurso_inexistente`,
 `acesso_negado`, `credenciais_invalidas`, `sessao_invalida`,
-`autenticacao_necessaria`, `limite_autenticacao`, `fora_da_area`.
+`autenticacao_necessaria`, `limite_autenticacao`, `fora_da_area`, `limite_cadastros`.
 
 400 indica entrada inválida; 401 exige login; 403 nega autoria/compartilhamento;
 404 indica ausência ou exclusão; 409 indica duplicidade/versão/conteúdo em conflito;
-429 indica excesso de tentativas de autenticação. Seleção Google inválida ou de
+429 indica excesso de tentativas de autenticação ou de lugares novos no dia (`limite_cadastros`),
+sempre com `Retry-After` em segundos. Seleção Google inválida ou de
 tipo não permitido usa 422; pin fora da área do catálogo também (`fora_da_area`). Na busca, falha/cota/ausência do Google são estados
 controlados de uma resposta 200; cadastro com dados próprios pode prosseguir sem
 vínculo externo. Mensagens externas,
