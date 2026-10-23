@@ -1,9 +1,22 @@
 # Jambu — checklist de desenvolvimento do MVP
 
-Preparado em 12/10/2026; atualizado em 20/10/2026. Caixas marcadas representam
+Preparado em 12/10/2026; atualizado em 23/10/2026. Caixas marcadas representam
 implementação e verificação no recorte descrito em cada item. Uma tarefa principal
 fica aberta enquanto tiver entregas pendentes; uma caixa marcada não significa
 que a funcionalidade já foi disponibilizada em um ambiente persistente ou remoto.
+
+Atualização de 23/10/2026: carga real Overture concluída no PostgreSQL local:
+**1.033 registros**, sendo 966 ativos e 67 provisórios por possível duplicidade.
+Repetição idempotente, dados anteriores preservados, busca após reinício e backups
+restaurados. Cliente oficial instalado em ambiente Python isolado; importador
+compatibilizado com seu GeoJSON. Gate atual: **88 testes**, build e smoke aprovados.
+UUIDs permanentes dos revisores, revisão dos provisórios e cobertura continuam pendentes.
+
+Atualização de 22/10/2026: fluxo de catálogo local implementado, com Google como
+ampliação opcional, cadastro provisório, prevenção de duplicatas, revisão por UUID e
+importador Overture. Naquela etapa: **86 testes**, build e smoke com reinício aprovados.
+V4 aplicada com backup/restauração conferidos. A carga real Overture ainda estava pendente na tarefa 6;
+as evidências de 20/10 abaixo são históricas.
 
 Atualização de 20/10/2026: persistência/migrações concluídas no PostgreSQL local (incluindo V3 de fotos e moderação),
 carga demonstrativa reutilizável, Places verificado ao vivo com a chave de
@@ -25,9 +38,9 @@ Revisão de escopo em 19/10/2026: sem limite diário de Meals, contas somente p�
 | --- | --- | --- |
 | Base Java, autenticação, perfis e seguimentos | Concluídos no backend; tarefas 2, 4 e 5 verificadas, com foto de perfil integrada na tarefa 10 | Operação de contas entra nas etapas posteriores |
 | Meals, edição/exclusão, timeline e link | Concluídos no backend; tarefas 7, 8, 9 e fotos de Dishes (tarefa 10) verificadas | Interfaces; o link atual abre JSON autenticado |
-| Persistência e migrações | V1/V2/V3 aplicadas no volume local; carga reutilizável, reinício e backups/restauração verificados | Configuração de outros ambientes na tarefa 15 |
-| Google Places | Sugestões, seleção e detalhe verificados ao vivo com chave demonstrativa (foco em São Luís no MVP); mocks mantidos nos testes | Credencial/configuração própria quando houver outro ambiente |
-| Qualidade da API | 68 testes, build, smoke, ambiente local e repetição da carga passaram em 20/10 | Revisão independente, runtime Java 21 e testes do MVP com as interfaces |
+| Persistência e migrações | V1–V4 aplicadas no volume local; reinício e backups/restauração verificados | Configuração de outros ambientes na tarefa 15 |
+| Catálogo de restaurantes | Fluxo local/Google e 1.033 registros Overture carregados; 100 chamadas Google/dia | Cobertura, revisão de 67 provisórios e UUIDs permanentes dos revisores |
+| Qualidade da API | 88 testes, build e smoke passaram em 22/10; carga, replay e reinício reais verificados em 23/10 | Revisão independente, runtime Java 21 e testes do MVP com as interfaces |
 | Fotos e moderação | Tarefas 10 e 11 concluídas e verificadas no backend (padrão 3:4, EXIF/GPS, storage privado local/Supabase, fila persistente, Rekognition HTTP simulado e revisão administrativa) | Credenciais reais de storage/moderação em ambiente hospedado na tarefa 15 |
 | Android e web | Não implementados | Tarefas 12 e 13 |
 | Hospedagem e operação | Não implementadas | Tarefas 15 e 16, conforme o estágio interno ou externo |
@@ -89,24 +102,26 @@ consumindo os contratos da API, e depois concluir integração e hospedagem inte
   - [x] Listar seguidores e contas seguidas com paginação.
   - [x] **Concluir quando:** um usuário segue outro, vê a relação no perfil e consegue desfazê-la.
 
-- [x] **6. Alimentar restaurantes pelo Google Places**
-  - [x] Implementar Autocomplete (New) e Place Details (New) no backend, com token de sessão, FieldMask, chave de ambiente e timeout.
-  - [x] Validar placeId/tipos no servidor; selecionar cria/reutiliza UUID interno com placeId único, inclusive em concorrência.
-  - [x] Trocar a fonte curada por Places; restaurante do ambiente local selecionado ao vivo. Referências fictícias permanecem exclusivas dos testes isolados.
-  - [x] Retornar perfil do restaurante sem conta de usuário ou proprietário.
-  - [x] Retornar as Meals do restaurante com paginação.
-  - [x] Calcular a nota como média das overall das Meals não excluídas, com o mesmo peso por Meal; sem avaliações, retornar nota ausente.
-  - [x] Tratar falhas do Google preservando Meals/dados próprios, sem inventar restaurante como fallback.
-  - [x] Conferir armazenamento e atribuições; manter novos dados externos fora de entidades e snapshots de idempotência. UIs futuras devem exibir as atribuições retornadas.
-  - [x] Criar/testar migração de legados sem perder UUIDs/FKs; não exigir NOT NULL antes de resolver os vínculos existentes.
-  - [x] Concluir migrações da tarefa 3 e conferir vínculos: banco inicialmente vazio, sem legados a conciliar; restaurante atual tem placeId/validação. Outros ambientes exigem inventário próprio.
-  - [x] Testar integração com servidor HTTP simulado, incluindo erros, timeout, máscaras, token e concorrência.
-  - [x] Configurar chave demonstrativa em .env.local, ignorado pelo Git, e testar sugestões, seleção e detalhe pelo backend. Quatro chamadas reais nesta rodada, sem alterar billing; nenhuma promessa de gratuidade ou validação de produção.
-  - [x] **Concluir quando:** seleção real referencia restaurante local único e suas Meals/notas Jambu continuam consultáveis. A chave demonstrativa foi suficiente para o ambiente local; outros ambientes terão configuração própria.
+- [ ] **6. Alimentar e selecionar restaurantes no catálogo local**
+  - [x] Buscar primeiro na base local, normalizando acentos e prefixos.
+  - [x] Manter “Ver mais resultados” com sugestões locais; ampliar automaticamente quando a busca local estiver vazia.
+  - [x] Controlar Google em 100 chamadas/dia persistidas, incluindo detalhes; limitar ampliações por usuário.
+  - [x] Preservar seleção/cadastro manual em erro, integração desligada, ausência de resultado ou cota esgotada.
+  - [x] Cadastrar nome, pin e categoria próprios; validar recorte de São Luís; não persistir conteúdo Google.
+  - [x] Sugerir possíveis duplicatas em 300 m; aceitar confirmação de outra unidade; verificar novamente sob concorrência.
+  - [x] Reutilizar UUID por identificador externo e manter idempotência do cadastro.
+  - [x] Permitir Meal em restaurante provisório e revisar depois, com autorização por UUID, versão e auditoria.
+  - [x] Implementar importação Overture por GeoJSON/lotes, mantendo GERS, fontes/licenças, release, UUID e correções locais.
+  - [x] Manter perfis, Meals e média Jambu disponíveis sem depender de Google.
+  - [x] Verificar migração V4 isolada, testes de concorrência, autorização, falhas, cota e reinício do JAR.
+  - [x] Aplicar V4 no banco persistente após backup e restauração conferidos, preservando dados e fotos.
+  - [x] Alimentar o banco local com export real Overture de São Luís e verificar replay, reinício, preservação e restauração.
+  - [ ] Conferir cobertura, revisar os 67 provisórios e configurar UUIDs permanentes dos founders como revisores.
+  - [ ] **Concluir quando:** fluxo local com catálogo real, ampliação e cadastro estiver pronto para uso interno. Código e carga concluídos; configuração/revisão operacional listada acima.
 
 - [x] **7. Implementar publicação de Meals e Dishes**
   - [x] Definir os DTOs de criação: restaurante, lista de Dishes com nome/nota, review, comeriaNovamente, modalidade e data da refeição.
-  - [x] Validar restaurante local previamente selecionado/validado pelo Places, pelo menos um Dish, nomes preenchidos e notas nos passos permitidos; publicar não chama Google.
+  - [x] Validar restaurante local selecionável, inclusive provisório, pelo menos um Dish, nomes preenchidos e notas nos passos permitidos; publicar não chama Google.
   - [x] Aceitar PRESENCIAL, DELIVERY e RETIRADA; não aceitar valores desconhecidos.
   - [x] Calcular overall no backend; não aceitar uma média arbitrária enviada pelo cliente.
   - [x] Se a data não vier preenchida, usar o dia da publicação em America/Sao_Paulo; manter o instante de publicação separado.
