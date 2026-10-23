@@ -38,7 +38,9 @@ public class RestauranteLocalService {
         var estatistica = meals.estatisticas(List.of(r.getId())).stream().findFirst().orElse(null);
         return new DadosLocais(RestauranteResumo.de(r),
                 estatistica == null ? null : estatistica.getNotaMedia().setScale(2, RoundingMode.HALF_UP),
-                estatistica == null ? 0 : estatistica.getQuantidade());
+                estatistica == null ? 0 : estatistica.getQuantidade(),
+                estatistica == null ? null : estatistica.getUltimaAvaliacaoEm());
     }
-    public record DadosLocais(RestauranteResumo restaurante, BigDecimal notaMedia, long quantidadeAvaliacoes) {}
+    public record DadosLocais(RestauranteResumo restaurante, BigDecimal notaMedia, long quantidadeAvaliacoes,
+            java.time.Instant ultimaAvaliacaoEm) {}
 }

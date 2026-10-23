@@ -345,6 +345,43 @@ class JambuApiApplicationTests {
     }
 
     @Test
+    void perfilNuncaConsultaGoogleEMontaLinkDoMapsSemCobranca() {
+        // Referência antiga só com place_id: o perfil não busca nome nem endereço no Google.
+        int antes = places.chamadas.get();
+        var semNome = restauranteService.consultar(restaurante);
+        assertThat(places.chamadas.get()).isEqualTo(antes);
+        assertThat(semNome.nome()).isNull();
+        assertThat(semNome.dadosExternosDisponiveis()).isFalse();
+        assertThat(semNome.atribuicoes()).isEmpty();
+        assertThat(semNome.atribuicaoGoogleMaps()).isNull();
+        assertThat(semNome.googleMapsUri()).hasToString("https://www.google.com/maps/search/?api=1&query=restaurante&query_place_id="
+                + semNome.googlePlaceId());
+
+        jdbc.update("update restaurantes set nome = 'Coisas do Pará', nome_normalizado = 'coisas do para' where id = ?", restaurante);
+        assertThat(restauranteService.consultar(restaurante).googleMapsUri()).hasToString(
+                "https://www.google.com/maps/search/?api=1&query=Coisas%20do%20Par%C3%A1&query_place_id=" + semNome.googlePlaceId());
+
+        places.falhar = true;
+        var proprio = cadastros.cadastrar(conta().id(), "maps-" + UUID.randomUUID(), new CadastroRestauranteRequest(
+                "Cantinho " + UUID.randomUUID(), -2.5048, -44.2462, CategoriaRestaurante.RESTAURANTE, null, null, Set.of()));
+        var perfilProprio = restauranteService.consultar(proprio.restaurante().id());
+        assertThat(perfilProprio.googleMapsUri()).hasToString("https://www.google.com/maps/search/?api=1&query=-2.5048%2C-44.2462");
+        assertThat(places.chamadas.get()).isEqualTo(antes);
+    }
+
+    @Test
+    void perfilInformaDataDaUltimaAvaliacaoAtiva() {
+        assertThat(restauranteService.consultar(restaurante).ultimaAvaliacaoEm()).isNull();
+        UUID autor = conta().id();
+        var primeira = publicar(autor, "4");
+        clock.agora = AGORA.plusSeconds(3600);
+        var segunda = publicar(autor, "5");
+        assertThat(restauranteService.consultar(restaurante).ultimaAvaliacaoEm()).isEqualTo(segunda.publicadaEm());
+        meals.excluir(autor, segunda.id());
+        assertThat(restauranteService.consultar(restaurante).ultimaAvaliacaoEm()).isEqualTo(primeira.publicadaEm());
+    }
+
+    @Test
     void tipoInvalidoEFalhaExternaNaoCriamReferenciaNemImpedemDadosLocais() {
         long antes = restaurantes.count();
         var autorCadastro = conta().id();
@@ -453,8 +490,11 @@ class JambuApiApplicationTests {
         var selecionado = http("POST", "/api/restaurantes/selecoes", token, corpo, null);
         assertThat(selecionado.statusCode()).isEqualTo(200);
         String id = json.readTree(selecionado.body()).path("id").asString();
+        int antesDoPerfil = places.chamadas.get();
         assertThat(http("GET", "/api/restaurantes/" + id, token, null, null).statusCode()).isEqualTo(200);
-        assertThat(places.ultimoToken).isNull();
+        // T01: o perfil não consulta o Google, nem para referência antiga sem nome próprio.
+        assertThat(places.chamadas.get()).isEqualTo(antesDoPerfil);
+        assertThat(places.ultimoToken).isEqualTo(sessaoPlaces);
         places.falhar = true;
         assertThat(http("POST", "/api/restaurantes/selecoes", token, corpo, null).statusCode()).isEqualTo(200);
         int chamadas = places.chamadas.get();

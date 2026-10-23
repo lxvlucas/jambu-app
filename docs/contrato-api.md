@@ -50,7 +50,7 @@ campos desconhecidos são rejeitados no cadastro e na atualização.
 | `GET /api/moderacao/restaurantes` | Fila paginada de revisão, restrita aos UUIDs configurados |
 | `POST /api/moderacao/restaurantes/{id}/revisao` | Revisão/correção com versão e auditoria |
 | `POST /api/moderacao/restaurantes/importacoes/overture` | Importação administrativa de lote GeoJSON |
-| `GET /api/restaurantes/{id}` | Perfil; nota ausente quando não há Meals |
+| `GET /api/restaurantes/{id}` | Perfil só com dados do Jambu; nota e `ultimaAvaliacaoEm` ausentes quando não há Meals |
 | `GET /api/restaurantes/{id}/meals` | Meals ativas, por cursor |
 | `POST /api/meals` | 201, exige `Idempotency-Key`; header Location |
 | `GET /api/meals/{id}` | Detalhe de Meal ativa |
@@ -130,8 +130,13 @@ A ampliação é limitada a uma por segundo por usuário e 100 chamadas/dia para
 API inteira, incluindo detalhes, no fuso America/Sao_Paulo. O token de busca
 não é o Bearer. Respostas incluem Cache-Control: no-store; manter atribuições visíveis.
 
-Perfis priorizam conteúdo local/Overture. Referências Google anteriores sem nome
-próprio podem consultar detalhes; falhas preservam dados próprios e médias Jambu.
+Perfis usam só dados do Jambu e **nunca chamam o Google**, nem com a cota esgotada.
+Referências Google antigas sem nome próprio aparecem com `nome` nulo até a revisão dos
+founders. `dadosExternosDisponiveis` é sempre `false`, `atribuicoes` vem vazia e
+`atribuicaoGoogleMaps` nula (mantidos por compatibilidade). `googleMapsUri` é um link Maps
+URLs, sem chave nem cobrança: com `place_id`, `query_place_id` mais o nome próprio; sem
+`place_id`, latitude e longitude; sem nenhum dos dois, nulo. `ultimaAvaliacaoEm` é o instante
+de publicação da Meal ativa mais recente.
 Restaurantes rejeitados não aceitam nova Meal/troca, mas preservam histórico.
 GET /api/restaurantes/{id}/meals consulta somente o banco.
 

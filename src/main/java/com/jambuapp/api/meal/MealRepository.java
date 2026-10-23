@@ -32,11 +32,12 @@ public interface MealRepository extends JpaRepository<Meal, UUID> {
     List<Meal> buscarCompletas(Collection<UUID> ids);
 
     @Query(value = """
-            select medias.restaurante_id as "restauranteId", avg(medias.nota) as "notaMedia", count(*) as "quantidade"
-            from (select m.id, m.restaurante_id, avg(d.nota) as nota
+            select medias.restaurante_id as "restauranteId", avg(medias.nota) as "notaMedia", count(*) as "quantidade",
+                   max(medias.publicada_em) as "ultimaAvaliacaoEm"
+            from (select m.id, m.restaurante_id, m.publicada_em, avg(d.nota) as nota
                   from meals m join dishes d on d.meal_id = m.id
                   where m.excluida_em is null and m.restaurante_id in (:ids)
-                  group by m.id, m.restaurante_id) medias
+                  group by m.id, m.restaurante_id, m.publicada_em) medias
             group by medias.restaurante_id
             """, nativeQuery = true)
     List<EstatisticaRestaurante> estatisticas(Collection<UUID> ids);
@@ -45,5 +46,6 @@ public interface MealRepository extends JpaRepository<Meal, UUID> {
         UUID getRestauranteId();
         BigDecimal getNotaMedia();
         long getQuantidade();
+        Instant getUltimaAvaliacaoEm();
     }
 }
