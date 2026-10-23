@@ -101,9 +101,9 @@ Para escolher um resultado local, basta usar seu UUID na Meal.
 
 ## Perfis, revisão e histórico
 
-`GET /api/restaurantes/{id}` prioriza dados locais/Overture e estatísticas Jambu.
-Só referências Google antigas, ainda sem nome próprio, tentam detalhe externo;
-isso também consome a cota. Sem Google, o histórico e as médias continuam disponíveis.
+`GET /api/restaurantes/{id}` usa só dados locais/Overture e estatísticas Jambu e nunca
+consulta o Google, nem para referências antigas sem nome próprio (essas aparecem com
+`nome` nulo até a revisão). O link `googleMapsUri` é montado com Maps URLs, sem cobrança.
 Snapshots de Meal continuam guardando somente UUID/placeId do restaurante.
 
 Origem (LEGADO, GOOGLE_PLACES, USUARIO ou OVERTURE) é separada de situação
