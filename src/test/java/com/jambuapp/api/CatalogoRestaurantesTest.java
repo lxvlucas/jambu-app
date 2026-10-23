@@ -263,6 +263,25 @@ class CatalogoRestaurantesTest {
                 .isInstanceOf(RegraNegocioException.class);
     }
 
+    @Test void ilhaInteiraAceitaOsQuatroMunicipiosERecusaForaComCodigoProprio() {
+        // T03: São Luís, São José de Ribamar, Paço do Lumiar e Raposa (malha IBGE máxima).
+        assertThat(area.contem(-2.49908, -44.24030)).as("Coisas do Pará, São Luís").isTrue();
+        assertThat(area.contem(-2.5617, -44.0542)).as("centro de São José de Ribamar").isTrue();
+        assertThat(area.contem(-2.5320, -44.1078)).as("centro de Paço do Lumiar").isTrue();
+        assertThat(area.contem(-2.4254, -44.0973)).as("centro de Raposa").isTrue();
+        assertThat(area.contem(-2.4700, -44.2050)).as("Araçagi").isTrue();
+        assertThat(area.contem(-3.7319, -38.5267)).as("Fortaleza").isFalse();
+        assertThat(area.nome()).isEqualTo("Grande São Luís");
+        assertThatThrownBy(() -> cadastros.cadastrar(autor, "fortaleza", manual("Fora " + autor, -3.7319, -38.5267, Set.of())))
+                .isInstanceOfSatisfying(RegraNegocioException.class, ex -> {
+                    assertThat(ex.getCodigo()).isEqualTo("fora_da_area");
+                    assertThat(ex.getStatus().value()).isEqualTo(422);
+                    assertThat(ex.getMessage()).isEqualTo("O Jambu ainda está só na Grande São Luís.");
+                });
+        assertThat(cadastros.cadastrar(autor, "ribamar", manual("Ribamar " + autor, -2.5617, -44.0542, Set.of())).situacao())
+                .isEqualTo("CRIADO");
+    }
+
     @Test void nomeDeUsuarioNaoConcedeNemRemovePermissaoDeRevisor() {
         jdbc.update("update usuarios set username = ? where id = ?", "rev_" + UUID.randomUUID().toString().substring(0, 8), REVISOR);
         jdbc.update("update usuarios set username = 'revisor_catalogo_fixture' where id = ?", autor);
