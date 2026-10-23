@@ -64,8 +64,8 @@ public class MealService {
             if (!anterior.get().correspondeAo(hash)) throw RegraNegocioException.conflito("Chave de idempotência já usada com outro conteúdo.");
             return json.readValue(anterior.get().getRespostaJson(), MealResponse.class);
         }
-        var restaurante = restaurantes.findById(request.restauranteId()).orElseThrow(RegraNegocioException::inexistente);
-        restaurante.exigirValidacaoPlaces();
+        var restaurante = restaurantes.buscarParaSelecao(request.restauranteId()).orElseThrow(RegraNegocioException::inexistente);
+        restaurante.exigirSelecionavel();
         // PostgreSQL armazena microssegundos. O snapshot e o cursor usam a mesma precisão.
         var agora = clock.instant().truncatedTo(ChronoUnit.MICROS);
         var data = request.dataRefeicao() == null ? agora.atZone(FUSO).toLocalDate() : request.dataRefeicao();
@@ -78,9 +78,9 @@ public class MealService {
     public MealResponse editar(UUID autorId, UUID id, MealRequest entrada) {
         var meal = propria(autorId, id);
         var request = normalizar(entrada);
-        var restaurante = restaurantes.findById(request.restauranteId()).orElseThrow(RegraNegocioException::inexistente);
-        // Edição no mesmo restaurante legado preserva o histórico; troca exige seleção validada.
-        if (!meal.getRestaurante().getId().equals(restaurante.getId())) restaurante.exigirValidacaoPlaces();
+        var restaurante = restaurantes.buscarParaSelecao(request.restauranteId()).orElseThrow(RegraNegocioException::inexistente);
+        // Edição histórica preservada; trocar de restaurante exige um local selecionável.
+        if (!meal.getRestaurante().getId().equals(restaurante.getId())) restaurante.exigirSelecionavel();
         Set<UUID> mantidos = request.dishes().stream().map(DishRequest::id).filter(Objects::nonNull).collect(Collectors.toSet());
         List<UUID> removidos = meal.getDishes().stream().map(Dish::getId).filter(dId -> !mantidos.contains(dId)).toList();
         var fotosParaLimpar = fotoTransacional.desassociarFotosDeDishesRemovidos(removidos);

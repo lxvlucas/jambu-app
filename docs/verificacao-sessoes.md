@@ -1,5 +1,10 @@
 # Verificação das sessões persistentes — 23/10/2026
 
+Este registro descreve a validação inicial, anterior ao commit e à integração do
+catálogo. A migração de sessões passou a ser V5 na integração, preservando a V4
+publicada. Veja a [verificação da integração](verificacao-integracao-sessoes.md)
+para o resultado atualizado.
+
 ## Ambiente e resultado
 
 Windows ARM64, Microsoft JDK 25.0.3 (compilação release 21), Maven 3.9.16 e

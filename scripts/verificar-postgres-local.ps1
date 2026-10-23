@@ -3,10 +3,10 @@ $ErrorActionPreference = 'Stop'
 $raiz = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $raizTemporaria = Join-Path $raiz '.local'
 $temporario = Join-Path $raizTemporaria ('verificacao-pg-' + [Guid]::NewGuid().ToString('N'))
-foreach ($binario in @('initdb.exe', 'pg_ctl.exe', 'psql.exe')) {
+foreach ($binario in @('initdb.exe', 'pg_ctl.exe')) {
     if (-not (Test-Path -LiteralPath (Join-Path $PostgresBin $binario))) { throw 'Diretório de binários PostgreSQL inválido.' }
 }
-$variaveis = @('JAMBU_TEST_DB_URL','JAMBU_TEST_DB_USER','JAMBU_TEST_DB_PASSWORD','PGPASSWORD')
+$variaveis = @('JAMBU_TEST_DB_URL','JAMBU_TEST_DB_USER','JAMBU_TEST_DB_PASSWORD')
 $anteriores = @{}
 foreach ($nome in $variaveis) { $anteriores[$nome] = [Environment]::GetEnvironmentVariable($nome, 'Process') }
 $iniciado = $false
@@ -30,15 +30,11 @@ try {
     $env:JAMBU_TEST_DB_URL = "jdbc:postgresql://127.0.0.1:$porta/postgres"
     $env:JAMBU_TEST_DB_USER = 'jambu_test'
     $env:JAMBU_TEST_DB_PASSWORD = $senha
-    $env:PGPASSWORD = $senha
     $argumentos = @('clean','verify')
     if ($Offline) { $argumentos = @('-o') + $argumentos }
     & mvn.cmd @argumentos
     if ($LASTEXITCODE -ne 0) { throw 'Build/testes falharam.' }
     & (Join-Path $PSScriptRoot 'verificar-ambiente-dev.ps1')
-    $fixture = "insert into restaurantes(id,google_place_id,places_validado_em) values ('10000000-0000-0000-0000-000000000001','teste_smoke_local',now()) on conflict do nothing;"
-    & (Join-Path $PostgresBin 'psql.exe') -h 127.0.0.1 -p $porta -U jambu_test -d postgres -v ON_ERROR_STOP=1 -c $fixture
-    if ($LASTEXITCODE -ne 0) { throw 'Falha ao preparar smoke.' }
     & (Join-Path $PSScriptRoot 'verificar-jar.ps1')
     Write-Output 'Gate completo com PostgreSQL local descartável passou.'
 } finally {

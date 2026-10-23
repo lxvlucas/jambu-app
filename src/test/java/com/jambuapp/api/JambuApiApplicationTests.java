@@ -47,6 +47,7 @@ class JambuApiApplicationTests {
     @Autowired SeguimentoService seguimentos;
     @Autowired RestauranteRepository restaurantes;
     @Autowired RestauranteService restauranteService;
+    @Autowired CadastroRestauranteService cadastros;
     @Autowired FotoService fotoService;
     @Autowired ModeracaoService moderacaoService;
     @Autowired ModeracaoTransacionalService moderacaoTransacional;
@@ -325,7 +326,7 @@ class JambuApiApplicationTests {
     }
 
     @Test
-    void selecaoConcorrenteReutilizaUuidESnapshotNaoPersisteDadosGoogle() throws Exception {
+    void referenciaLegadaPermaneceUnicaESnapshotNaoPersisteDadosGoogle() throws Exception {
         String placeId = "concorrente_" + UUID.randomUUID();
         var ids = paralelo(6, i -> selecionar(placeId).id().toString());
         assertThat(new HashSet<>(ids)).hasSize(1);
@@ -346,14 +347,18 @@ class JambuApiApplicationTests {
     @Test
     void tipoInvalidoEFalhaExternaNaoCriamReferenciaNemImpedemDadosLocais() {
         long antes = restaurantes.count();
-        assertThatThrownBy(() -> selecionar("nao_permitido_" + UUID.randomUUID())).isInstanceOf(PlacesException.class);
+        var autorCadastro = conta().id();
+        assertThatThrownBy(() -> cadastros.cadastrar(autorCadastro, "tipo", cadastroGoogle("nao_permitido_" + UUID.randomUUID())))
+                .isInstanceOf(PlacesException.class);
         assertThat(restaurantes.count()).isEqualTo(antes);
         UUID autor = conta().id();
         var meal = publicar(autor, "1");
         places.falhar = true;
-        assertThatThrownBy(() -> selecionar("falha_" + UUID.randomUUID())).isInstanceOf(PlacesException.class);
-        assertThatThrownBy(() -> restauranteService.buscar("arroz", UUID.randomUUID())).isInstanceOf(PlacesException.class);
-        assertThat(restaurantes.count()).isEqualTo(antes);
+        var fallback = cadastros.cadastrar(autorCadastro, "falha", cadastroGoogle("falha_" + UUID.randomUUID()));
+        assertThat(fallback.situacao()).isEqualTo("CRIADO_SEM_GOOGLE");
+        assertThat(fallback.restaurante().googlePlaceId()).isNull();
+        assertThat(restauranteService.buscar("arroz", UUID.randomUUID()).estadoExterno()).isEqualTo("INDISPONIVEL");
+        assertThat(restaurantes.count()).isEqualTo(antes + 1);
         var perfil = restauranteService.consultar(restaurante);
         assertThat(perfil.dadosExternosDisponiveis()).isFalse();
         assertThat(perfil.nome()).isNull();
@@ -389,10 +394,10 @@ class JambuApiApplicationTests {
     }
 
     @Test
-    void legadoContinuaLegivelEEditavelMasNovaPublicacaoExigePlaces() {
+    void legadoComDadosPropriosContinuaLegivelEPermitePublicacaoSemPlaces() {
         UUID autor = conta().id();
         var antiga = publicar(autor, "4");
-        jdbc.update("update restaurantes set google_place_id = null, places_validado_em = null, nome = 'Nome próprio legado', endereco = 'Endereço próprio' where id = ?", restaurante);
+        jdbc.update("update restaurantes set google_place_id = null, places_validado_em = null, origem = 'LEGADO', nome = 'Nome próprio legado', endereco = 'Endereço próprio' where id = ?", restaurante);
         int chamadas = places.chamadas.get();
         var perfil = restauranteService.consultar(restaurante);
         assertThat(perfil.origem()).isEqualTo("LEGADO");
@@ -400,11 +405,11 @@ class JambuApiApplicationTests {
         assertThat(places.chamadas.get()).isEqualTo(chamadas);
         assertThat(consultas.consultar(antiga.id()).restaurante().googlePlaceId()).isNull();
         assertThat(meals.editar(autor, antiga.id(), editar(antiga, restaurante, "3")).notaOverall()).isEqualByComparingTo("3");
-        assertThatThrownBy(() -> publicar(autor, "5")).isInstanceOf(RegraNegocioException.class).hasMessageContaining("Places");
+        assertThat(publicar(autor, "5").restaurante().id()).isEqualTo(restaurante);
         UUID legado = restaurante;
         restaurante = selecionar("novo_" + UUID.randomUUID()).id();
         var nova = publicar(autor, "5");
-        assertThatThrownBy(() -> meals.editar(autor, nova.id(), editar(nova, legado, "2"))).isInstanceOf(RegraNegocioException.class);
+        assertThat(meals.editar(autor, nova.id(), editar(nova, legado, "2")).restaurante().id()).isEqualTo(legado);
     }
 
     @Test
@@ -440,16 +445,18 @@ class JambuApiApplicationTests {
         assertThat(sugestoes.statusCode()).isEqualTo(200);
         assertThat(sugestoes.headers().firstValue("Cache-Control")).hasValue("no-store");
         assertThat(places.ultimoToken).isEqualTo(sessaoPlaces);
-        String corpo = json.writeValueAsString(new SelecionarRestauranteRequest("http_" + UUID.randomUUID(), sessaoPlaces));
+        String placeId = "http_" + UUID.randomUUID();
+        String corpo = json.writeValueAsString(new SelecionarRestauranteRequest(placeId, sessaoPlaces));
         assertThat(http("POST", "/api/restaurantes/selecoes", token, corpo.substring(0, corpo.length() - 1) + ",\"nome\":\"Nome forjado\"}", null).statusCode()).isEqualTo(400);
+        assertThat(http("POST", "/api/restaurantes/selecoes", token, corpo, null).statusCode()).isEqualTo(422);
+        selecionar(placeId); // Referência pré-catálogo de teste, não cria via endpoint aposentado.
         var selecionado = http("POST", "/api/restaurantes/selecoes", token, corpo, null);
         assertThat(selecionado.statusCode()).isEqualTo(200);
-        assertThat(places.ultimoToken).isEqualTo(sessaoPlaces);
         String id = json.readTree(selecionado.body()).path("id").asString();
         assertThat(http("GET", "/api/restaurantes/" + id, token, null, null).statusCode()).isEqualTo(200);
         assertThat(places.ultimoToken).isNull();
         places.falhar = true;
-        assertThat(http("POST", "/api/restaurantes/selecoes", token, corpo, null).statusCode()).isEqualTo(503);
+        assertThat(http("POST", "/api/restaurantes/selecoes", token, corpo, null).statusCode()).isEqualTo(200);
         int chamadas = places.chamadas.get();
         assertThat(http("GET", "/api/restaurantes/" + id + "/meals", token, null, null).statusCode()).isEqualTo(200);
         assertThat(places.chamadas.get()).isEqualTo(chamadas);
@@ -765,7 +772,15 @@ class JambuApiApplicationTests {
         @Bean @Primary ModeracaoSimulada moderacaoSimulada() { return new ModeracaoSimulada(); }
     }
     private RestauranteResponse selecionar(String placeId) {
-        return restauranteService.selecionar(new SelecionarRestauranteRequest(placeId, UUID.randomUUID()));
+        jdbc.update("""
+                insert into restaurantes(id,google_place_id,places_validado_em,origem)
+                values (?,?,?,'GOOGLE_PLACES') on conflict(google_place_id) do nothing
+                """, UUID.randomUUID(), placeId, java.sql.Timestamp.from(clock.instant()));
+        return restauranteService.consultar(restaurantes.findByGooglePlaceId(placeId).orElseThrow().getId());
+    }
+    private CadastroRestauranteRequest cadastroGoogle(String placeId) {
+        return new CadastroRestauranteRequest("Próprio " + UUID.randomUUID(), -2.53, -44.30,
+                CategoriaRestaurante.RESTAURANTE, placeId, UUID.randomUUID(), Set.of());
     }
     static class ModeracaoSimulada implements ProvedorModeracaoImagem {
         volatile boolean falhar;

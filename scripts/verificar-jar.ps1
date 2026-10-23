@@ -60,7 +60,22 @@ try {
     $login = @{ identificador=$nome; senha=$senha } | ConvertTo-Json
     $sessao = Invoke-RestMethod "$base/api/auth/login" -Method Post -ContentType 'application/json' -Body $login
     $headers = @{ Authorization="Bearer $($sessao.token)"; 'Idempotency-Key'='smoke-persistencia' }
-    $pedido = @{ restauranteId='10000000-0000-0000-0000-000000000001'; dishes=@(@{ nome='Prato de teste'; nota=4.5 }); comeriaNovamente=$true } | ConvertTo-Json -Depth 5
+    $headersCadastro = @{ Authorization="Bearer $($sessao.token)"; 'Idempotency-Key'='smoke-restaurante' }
+    $nomeRestaurante = 'Restaurante smoke ' + [Guid]::NewGuid().ToString('N')
+    $dadosRestaurante = @{ nome=$nomeRestaurante; latitude=-2.53; longitude=-44.30; categoria='RESTAURANTE' } | ConvertTo-Json
+    $cadastroRestaurante = Invoke-RestMethod "$base/api/restaurantes/cadastros" -Method Post -ContentType 'application/json' -Headers $headersCadastro -Body $dadosRestaurante
+    if ($cadastroRestaurante.situacao -ne 'CRIADO') { throw 'O cadastro local não concluiu.' }
+    $restauranteIdSmoke = $cadastroRestaurante.restaurante.id
+    $termo = [Uri]::EscapeDataString($nomeRestaurante)
+    $busca = Invoke-RestMethod "$base/api/restaurantes?termo=$termo" -Headers $headers
+    if ($busca.estadoExterno -ne 'NAO_SOLICITADO' -or -not $busca.podeVerMais -or $busca.locais[0].id -ne $restauranteIdSmoke) {
+        throw 'A busca não priorizou o catálogo local com opção de ampliar.'
+    }
+    $ampliada = Invoke-RestMethod "$base/api/restaurantes?termo=$termo&ampliar=true" -Headers $headers
+    if ($ampliada.estadoExterno -ne 'DESATIVADO' -or $ampliada.locais[0].id -ne $restauranteIdSmoke -or -not $ampliada.podeAdicionar) {
+        throw 'A ampliação com Google desativado não preservou o fluxo local.'
+    }
+    $pedido = @{ restauranteId=$restauranteIdSmoke; dishes=@(@{ nome='Prato de teste'; nota=4.5 }); comeriaNovamente=$true } | ConvertTo-Json -Depth 5
     $meal = Invoke-RestMethod "$base/api/meals" -Method Post -ContentType 'application/json' -Headers $headers -Body $pedido
     Parar-ApiTeste
     $base = Iniciar-ApiTeste 'reinicializacao'
@@ -72,6 +87,9 @@ try {
         throw 'A repetição da renovação não recuperou as mesmas credenciais.'
     }
     $headers.Authorization = "Bearer $($renovada.token)"
+    $headersCadastro.Authorization = "Bearer $($renovada.token)"
+    $cadastroRepetido = Invoke-RestMethod "$base/api/restaurantes/cadastros" -Method Post -ContentType 'application/json' -Headers $headersCadastro -Body $dadosRestaurante
+    if ($cadastroRepetido.restaurante.id -ne $restauranteIdSmoke) { throw 'O cadastro não preservou seu UUID após reinício.' }
     $persistida = Invoke-RestMethod "$base/api/meals/$($meal.id)" -Headers $headers
     if ($persistida.id -ne $meal.id -or $persistida.notaOverall -ne 4.5) { throw 'A Meal não persistiu corretamente após reinício.' }
     $repetida = Invoke-RestMethod "$base/api/meals" -Method Post -ContentType 'application/json' -Headers $headers -Body $pedido
@@ -94,13 +112,13 @@ try {
     $senhaDemo = ConvertTo-SecureString ([Guid]::NewGuid().ToString('N')) -AsPlainText -Force
     $prefixoDemo = 'demo_' + [Guid]::NewGuid().ToString('N').Substring(0, 8)
     $carga1 = & (Join-Path $PSScriptRoot 'carregar-demonstracao.ps1') -BaseUrl $base `
-        -RestauranteId '10000000-0000-0000-0000-000000000001' -Prefixo $prefixoDemo -Senha $senhaDemo
+        -RestauranteId $restauranteIdSmoke -Prefixo $prefixoDemo -Senha $senhaDemo
     $carga2 = & (Join-Path $PSScriptRoot 'carregar-demonstracao.ps1') -BaseUrl $base `
-        -RestauranteId '10000000-0000-0000-0000-000000000001' -Prefixo $prefixoDemo -Senha $senhaDemo
+        -RestauranteId $restauranteIdSmoke -Prefixo $prefixoDemo -Senha $senhaDemo
     if ($carga1.QuantidadeMealsDaCarga -ne 3 -or ($carga1.Meals -join ',') -ne ($carga2.Meals -join ',')) {
         throw 'Repetir a carga demonstrativa não preservou as mesmas três Meals.'
     }
-    Write-Output 'Smoke do JAR passou: saúde, cadastro/login, Meal, reinício, refresh persistido, repetição segura, idempotência, logout e carga demonstrativa repetida; zero chamadas Google.'
+    Write-Output 'Smoke do JAR passou: saúde, login, cadastro e busca local, ampliação sem Google, Meal, reinício, refresh persistido, repetição segura, idempotência dos dois cadastros, logout e carga demonstrativa repetida; zero chamadas Google.'
 }
 finally {
     Parar-ApiTeste

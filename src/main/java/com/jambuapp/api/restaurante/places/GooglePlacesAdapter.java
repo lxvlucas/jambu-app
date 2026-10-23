@@ -5,6 +5,7 @@ import java.net.http.*;
 import java.util.*;
 import java.util.concurrent.*;
 import com.jambuapp.api.comum.RegraNegocioException;
+import com.jambuapp.api.restaurante.CotaPlacesService;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
@@ -20,9 +21,11 @@ public class GooglePlacesAdapter implements ProvedorRestaurantes {
     private final PlacesProperties config;
     private final JsonMapper json;
     private final HttpClient http;
-    public GooglePlacesAdapter(PlacesProperties config, JsonMapper json) {
+    private final CotaPlacesService cota;
+    public GooglePlacesAdapter(PlacesProperties config, JsonMapper json, CotaPlacesService cota) {
         this.config = config;
         this.json = json;
+        this.cota = cota;
         this.http = HttpClient.newBuilder().connectTimeout(config.timeout()).followRedirects(HttpClient.Redirect.NEVER).build();
     }
     @Override
@@ -77,6 +80,7 @@ public class GooglePlacesAdapter implements ProvedorRestaurantes {
                 .header("X-Goog-Api-Key", config.apiKey()).header("X-Goog-FieldMask", mascara)
                 .header("Content-Type", "application/json");
         if (corpo == null) request.GET(); else request.POST(HttpRequest.BodyPublishers.ofString(corpo));
+        cota.reservar();
         var futuro = http.sendAsync(request.build(), HttpResponse.BodyHandlers.ofString());
         HttpResponse<String> resposta;
         try { resposta = futuro.get(config.timeout().toMillis(), TimeUnit.MILLISECONDS); }

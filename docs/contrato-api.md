@@ -1,4 +1,4 @@
-# Contrato HTTP da API — posts públicos e Places
+# Contrato HTTP da API — posts públicos e catálogo local
 
 Base local: `http://127.0.0.1:8080`. JSON UTF-8. IDs UUID; notas decimais;
 datas `YYYY-MM-DD`; instantes ISO-8601 em UTC. O dia de publicação é calculado
@@ -44,8 +44,12 @@ campos desconhecidos são rejeitados no cadastro e na atualização.
 | `GET /api/moderacao/fotos/{fotoId}/conteudo` | Binário para inspeção do moderador |
 | `POST /api/moderacao/fotos/{fotoId}/revisao` | Decisão humana (`APROVAR`, `REJEITAR`, `REVISAR`) com motivo e auditoria |
 | `DELETE /api/moderacao/fotos/{fotoId}` | 204, remoção administrativa com motivo |
-| `GET /api/restaurantes/sugestoes?termo=&tokenSessao=` | Sugestões Places; `GET /api/restaurantes` é alias com os mesmos parâmetros |
-| `POST /api/restaurantes/selecoes` | 200, cria/reutiliza UUID local após validação Places |
+| `GET /api/restaurantes?termo=&tokenSessao=&ampliar=false` | Sugestões locais; amplia automaticamente quando vazio ou explicitamente com ampliar=true; /sugestoes é alias |
+| `POST /api/restaurantes/cadastros` | Cadastro próprio idempotente, confirmação de possíveis duplicatas e placeId opcional |
+| `POST /api/restaurantes/selecoes` | Reutiliza referência Google existente; novo ID retorna 422 cadastro_necessario |
+| `GET /api/moderacao/restaurantes` | Fila paginada de revisão, restrita aos UUIDs configurados |
+| `POST /api/moderacao/restaurantes/{id}/revisao` | Revisão/correção com versão e auditoria |
+| `POST /api/moderacao/restaurantes/importacoes/overture` | Importação administrativa de lote GeoJSON |
 | `GET /api/restaurantes/{id}` | Perfil; nota ausente quando não há Meals |
 | `GET /api/restaurantes/{id}/meals` | Meals ativas, por cursor |
 | `POST /api/meals` | 201, exige `Idempotency-Key`; header Location |
@@ -90,44 +94,49 @@ gestão de dispositivos, CSRF e repetição estão em [sessões persistentes](se
 
 ## Buscar e selecionar restaurante
 
-1. O cliente gera um UUID novo como `tokenSessao` para cada interação de busca Places.
-2. Chama `GET /api/restaurantes/sugestoes?termo=arroz&tokenSessao=<UUID>`.
-3. Envia `POST /api/restaurantes/selecoes` com o placeId escolhido e o mesmo token.
-4. Usa o `id` local retornado como `restauranteId` na Meal.
+Consultar `GET /api/restaurantes?termo=aka` (2–100 caracteres).
+A API devolve `locais`, `itens` externos, `estadoExterno`, `podeVerMais`,
+`podeAdicionar`, `tokenSessao` e atribuição Google quando aplicável.
+Com sugestões locais, **Ver mais resultados** envia `ampliar=true` e preserva
+termo/token. Sem sugestões locais, o servidor amplia automaticamente. Com Google
+desligado, erro ou cota esgotada, o cadastro próprio permanece disponível.
+
+Escolher um local significa usar seu UUID diretamente na Meal. Para cadastrar,
+enviar `POST /api/restaurantes/cadastros` com Bearer e `Idempotency-Key`:
 
 ```json
 {
-  "googlePlaceId": "PLACE_ID_RECEBIDO_NA_SUGESTAO",
-  "tokenSessao": "11111111-1111-4111-8111-111111111111"
+  "nome": "Nome informado pela pessoa",
+  "latitude": -2.53,
+  "longitude": -44.30,
+  "categoria": "RESTAURANTE",
+  "googlePlaceId": null,
+  "tokenSessao": null,
+  "distintosConfirmados": []
 }
 ```
 
-O token Places não é o Bearer: a sessão de login continua no header Authorization.
-Use token novo após concluir/abandonar uma busca; ele não é reutilizável como sessão
-permanente. Perfil de restaurante não recebe token de autocomplete.
-Não enviar nome, endereço, nota ou fotos na seleção; campos extras são rejeitados.
+Respostas: CRIADO, REUTILIZADO, CONFIRMAR_DUPLICATAS ou CRIADO_SEM_GOOGLE.
+CONFIRMAR_DUPLICATAS não cria registro; permite escolher candidato ou reenviar
+a mesma chave com os UUIDs recusados em distintosConfirmados. Os cadastros novos
+ficam PROVISORIO e já aceitam Meal. Conteúdo próprio não deve ser copiado do Google.
 
-Sugestões retornam `{ "itens": [{ "googlePlaceId": "...", "descricao": "..." }],
-"atribuicaoGoogleMaps": "Google Maps" }`. A busca aceita 2–100 caracteres; não é uma
-lista paginada do catálogo local. Somente sugestões de alimentação aceitas são
-retornadas, com até cinco candidatos fornecidos pelo Google antes do filtro.
+Quando houver seleção externa, informar placeId e token para validar/vincular;
+somente o ID validado é persistido. /selecoes mantém compatibilidade para referências
+Google já existentes; não cria mais restaurante apenas com placeId.
 
-Seleção/detalhe retornam: `id`, `googlePlaceId`, `nome`, `endereco`,
-`dadosExternosDisponiveis`, `origem`, `googleMapsUri`, `atribuicoes`
-(`provedor`, `uri`), `atribuicaoGoogleMaps`, `notaMedia` e `quantidadeAvaliacoes`.
-Média e contagem são exclusivamente Jambu. Tipos aceitos inicialmente: `restaurant`,
-`cafe`, `bakery`, `bar`, `meal_takeaway`, `meal_delivery`, `food_court`.
-Os tipos são conferidos novamente pelo servidor no Place Details.
+A busca local ignora acentos e usa prefixos das palavras; até 20 sugestões.
+A ampliação é limitada a uma por segundo por usuário e 100 chamadas/dia para a
+API inteira, incluindo detalhes, no fuso America/Sao_Paulo. O token de busca
+não é o Bearer. Respostas incluem Cache-Control: no-store; manter atribuições visíveis.
 
-Todas essas respostas incluem `Cache-Control: no-store`. Conteúdo externo e
-atribuições devem ser apresentados juntos nas interfaces; não persistir os payloads
-como catálogo, seed ou cache permanente. Consulte as [regras de exibição](places-posts-publicos.md).
+Perfis priorizam conteúdo local/Overture. Referências Google anteriores sem nome
+próprio podem consultar detalhes; falhas preservam dados próprios e médias Jambu.
+Restaurantes rejeitados não aceitam nova Meal/troca, mas preservam histórico.
+GET /api/restaurantes/{id}/meals consulta somente o banco.
 
-Se Google falhar, sugestões/seleção falham com erro controlado. Detalhe local continua
-200 com médias próprias, `dadosExternosDisponiveis: false` e campos externos nulos.
-Legados sem vínculo retornam `origem: LEGADO`, placeId nulo e seus dados próprios
-originais. Não são fallback de seleção e não servem a novas publicações.
-`GET /api/restaurantes/{id}/meals` consulta somente o banco, sem acesso ao Google.
+Contrato completo, revisão por UUID, importação e exemplos:
+[catálogo de restaurantes](catalogo-restaurantes.md).
 
 ## Publicar Meal
 
@@ -184,7 +193,7 @@ omitidos são limpos. Autor e instante de publicação permanecem os mesmos.
 
 Uma Meal removida retorna 404 e sai de timeline, perfis e médias. Edição no mesmo
 restaurante legado continua permitida. Novas publicações e troca de restaurante
-exigem referência local já validada pelo Places. Nota do restaurante é a média das médias não arredondadas de suas
+exigem restaurante local selecionável, inclusive provisório. Nota do restaurante é a média das médias não arredondadas de suas
 Meals ativas, com o mesmo peso por Meal; arredondamento só na resposta.
 
 ## Erros
@@ -197,9 +206,10 @@ sensíveis. Códigos relevantes: `dados_invalidos`, `conflito`, `recurso_inexist
 
 400 indica entrada inválida; 401 exige login; 403 nega autoria/compartilhamento;
 404 indica ausência ou exclusão; 409 indica duplicidade/versão/conteúdo em conflito;
-429 indica excesso de tentativas de autenticação. Places usa 422 para lugar inválido
-ou tipo não permitido; 502 para resposta externa inválida; 503 para integração
-ausente/indisponível (incluindo limite do provedor); 504 para timeout. Mensagens externas,
+429 indica excesso de tentativas de autenticação. Seleção Google inválida ou de
+tipo não permitido usa 422. Na busca, falha/cota/ausência do Google são estados
+controlados de uma resposta 200; cadastro com dados próprios pode prosseguir sem
+vínculo externo. Mensagens externas,
 chave e corpo de erro Google não são retornados ao cliente.
 
 ## Fotos e moderação

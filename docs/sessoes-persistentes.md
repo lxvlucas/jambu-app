@@ -131,11 +131,14 @@ não provam identidade física do dispositivo; mudança de IP não encerra a ses
 
 ## Migração e entrega
 
-V4 copia os hashes anteriores para tokens_acesso e mantém exatamente a expiração e
+V5 copia os hashes anteriores para tokens_acesso e mantém exatamente a expiração e
 revogação originais. Sessões LEGADO não recebem refresh; novo login com senha cria
 a sessão renovável. A migração remove token_hash de sessoes: o binário antigo não é
 compatível com o schema novo. Faça backup e implantação coordenada; recuperação deve
 ser planejada como correção adiante ou restauração controlada, sem downgrade automático.
+
+A V4 publicada do catálogo permanece intacta. A migração de sessões foi renumerada
+para V5 durante a integração, antes de qualquer aplicação em banco persistente.
 
 Os clientes atuais precisam implementar o contrato de refresh para aproveitar a
 persistência; a API sozinha não renova tokens no celular/navegador. Não houve deploy
