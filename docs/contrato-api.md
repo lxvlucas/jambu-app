@@ -4,9 +4,11 @@ Base local: `http://127.0.0.1:8080`. JSON UTF-8. IDs UUID; notas decimais;
 datas `YYYY-MM-DD`; instantes ISO-8601 em UTC. O dia de publicação é calculado
 em `America/Sao_Paulo`. Campos desconhecidos no JSON são rejeitados.
 
-Todas as rotas de negócio, exceto cadastro/login, exigem
+Todas as rotas de negócio exigem
 `Authorization: Bearer <token>`. Saúde pública: `GET /actuator/health`.
-Não há autenticação por cookie, Basic, conta padrão ou formulário de login.
+Renovação e logout aceitam sua credencial própria. As rotas /api/auth/web usam cookie
+de refresh com CSRF e origem explícita; ele não autentica rotas de negócio. Não há
+Basic, conta padrão ou formulário de login. Consulte [sessões persistentes](sessoes-persistentes.md).
 Contas sempre públicas: perfis e Meals podem ser consultados sem seguir o autor,
 desde que o leitor esteja autenticado. Não há pedidos de seguimento, aprovação ou
 configuração de conta privada. `isPrivate`, `privateAccount`, `visibilidade` e outros
@@ -17,7 +19,8 @@ campos desconhecidos são rejeitados no cadastro e na atualização.
 | Método e caminho | Resultado |
 | --- | --- |
 | `POST /api/auth/cadastro` | 201, dados da própria conta |
-| `POST /api/auth/login` | 200, token e expiração; `Cache-Control: no-store` |
+| `POST /api/auth/login` | 200, acesso de 15 min, refresh e datas; `Cache-Control: no-store` |
+| `POST /api/auth/refresh` | Renova com refreshToken e operacaoId, sem exigir Bearer válido |
 | `POST /api/auth/logout` | 204, revoga a sessão atual |
 | `GET /api/usuarios/me` | Dados privados da própria conta |
 | `PUT /api/usuarios/me` | Atualiza username, e-mail e celular |
@@ -79,8 +82,11 @@ não implica verificação de posse. Senha: 12–128 caracteres, sem normalizaç
 { "identificador": "usuario_teste", "senha": "Uma-senha-de-teste-123!" }
 ```
 
-Login aceita username ou e-mail. Retorna `{ "token": "...", "expiraEm": "..." }`.
-O token aparece somente na emissão. Uma sessão revogada ou expirada retorna 401.
+Login aceita username ou e-mail. Retorna token, expiraEm, refreshToken, sessaoId e
+expiraSessaoEm. Acesso expira em 15 minutos; refresh renova silenciosamente dentro de
+30 dias sem renovação e do limite original de 180 dias. Login/refresh web não expõem
+refresh no JSON. Revogação ou expiração definitiva exigem novo login. Contrato completo,
+gestão de dispositivos, CSRF e repetição estão em [sessões persistentes](sessoes-persistentes.md).
 
 ## Buscar e selecionar restaurante
 

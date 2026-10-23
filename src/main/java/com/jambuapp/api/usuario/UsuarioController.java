@@ -30,7 +30,7 @@ public class UsuarioController {
     public ContaResponse conta(@AuthenticationPrincipal UsuarioAutenticado principal) { return usuarios.conta(principal.usuarioId()); }
     @PutMapping("/me")
     public ContaResponse atualizar(@AuthenticationPrincipal UsuarioAutenticado principal, @Valid @RequestBody AtualizarContaRequest request) {
-        return usuarios.atualizar(principal.usuarioId(), request);
+        return usuarios.atualizar(principal, request);
     }
     @GetMapping("/{id}")
     public PerfilResponse consultar(@PathVariable UUID id) { return usuarios.consultar(id); }

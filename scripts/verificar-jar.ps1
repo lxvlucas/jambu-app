@@ -3,6 +3,7 @@ $raizApi = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $jar = Join-Path $raizApi 'target/jambu-api-0.0.1-SNAPSHOT.jar'
 $java = if ($env:JAVA_HOME) { Join-Path $env:JAVA_HOME 'bin/java.exe' } else { 'java.exe' }
 $variaveis = @(
+    'JAMBU_AUTH_CHAVE_REPETICAO',
     'JAMBU_DB_URL', 'JAMBU_DB_USER', 'JAMBU_DB_PASSWORD',
     'JAMBU_GOOGLE_PLACES_HABILITADO', 'JAMBU_GOOGLE_PLACES_API_KEY',
     'JAMBU_FOTOS_DIRETORIO_LOCAL', 'JAMBU_FOTOS_STORAGE_TIPO',
@@ -41,6 +42,8 @@ try {
         throw 'Execute pelo script verificar.ps1, com o PostgreSQL descartável.'
     }
     $env:JAMBU_DB_URL = $env:JAMBU_TEST_DB_URL
+    # Chave efêmera exclusiva deste smoke, preservada entre os dois reinícios.
+    $env:JAMBU_AUTH_CHAVE_REPETICAO = [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
     $env:JAMBU_DB_USER = $env:JAMBU_TEST_DB_USER
     $env:JAMBU_DB_PASSWORD = $env:JAMBU_TEST_DB_PASSWORD
     $env:JAMBU_GOOGLE_PLACES_HABILITADO = 'false'
@@ -61,6 +64,14 @@ try {
     $meal = Invoke-RestMethod "$base/api/meals" -Method Post -ContentType 'application/json' -Headers $headers -Body $pedido
     Parar-ApiTeste
     $base = Iniciar-ApiTeste 'reinicializacao'
+    # O refresh e a recuperação idempotente precisam sobreviver ao reinício do processo.
+    $pedidoRefresh = @{refreshToken=$sessao.refreshToken; operacaoId=[Guid]::NewGuid().ToString()} | ConvertTo-Json
+    $renovada = Invoke-RestMethod "$base/api/auth/refresh" -Method Post -ContentType 'application/json' -Body $pedidoRefresh
+    $recuperada = Invoke-RestMethod "$base/api/auth/refresh" -Method Post -ContentType 'application/json' -Body $pedidoRefresh
+    if ($renovada.token -ne $recuperada.token -or $renovada.refreshToken -ne $recuperada.refreshToken) {
+        throw 'A repetição da renovação não recuperou as mesmas credenciais.'
+    }
+    $headers.Authorization = "Bearer $($renovada.token)"
     $persistida = Invoke-RestMethod "$base/api/meals/$($meal.id)" -Headers $headers
     if ($persistida.id -ne $meal.id -or $persistida.notaOverall -ne 4.5) { throw 'A Meal não persistiu corretamente após reinício.' }
     $repetida = Invoke-RestMethod "$base/api/meals" -Method Post -ContentType 'application/json' -Headers $headers -Body $pedido
@@ -89,7 +100,7 @@ try {
     if ($carga1.QuantidadeMealsDaCarga -ne 3 -or ($carga1.Meals -join ',') -ne ($carga2.Meals -join ',')) {
         throw 'Repetir a carga demonstrativa não preservou as mesmas três Meals.'
     }
-    Write-Output 'Smoke do JAR passou: saúde, cadastro/login, referência simulada local, Meal, reinício, persistência, idempotência, logout e carga demonstrativa repetida; zero chamadas Google.'
+    Write-Output 'Smoke do JAR passou: saúde, cadastro/login, Meal, reinício, refresh persistido, repetição segura, idempotência, logout e carga demonstrativa repetida; zero chamadas Google.'
 }
 finally {
     Parar-ApiTeste

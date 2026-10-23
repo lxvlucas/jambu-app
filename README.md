@@ -1,5 +1,10 @@
 # Jambu API
 
+Autenticação: acesso de 15 minutos e renovação por dispositivo, com 30 dias sem
+renovação e limite original de 180 dias. Execute `./scripts/configurar-autenticacao.ps1`
+para preparar a chave local antes de iniciar a API. Integração Android/web, cookies,
+CSRF, migração e testes: [sessões persistentes](docs/sessoes-persistentes.md).
+
 Fundação do protótipo interno, implementada a partir dos diagramas de classes da raiz
 de `docs/modelagem` e das tarefas 1–11 do checklist do MVP. Java 21, Spring Boot 4.1.1,
 Maven, Spring Data JPA, Flyway, Spring Security e PostgreSQL 17.
@@ -120,8 +125,9 @@ globais nem interfaces de service sem necessidade. `Dish` é persistido pelo agr
 | `JAMBU_FOTOS_MODERACAO_BASE_URL`, `JAMBU_FOTOS_MODERACAO_API_KEY`, `JAMBU_FOTOS_MODERACAO_TIMEOUT` | Endpoint HTTPS AWS (ou simulador `127.0.0.1`), credencial e timeout (`PT5S` até `PT30S`) |
 | `JAMBU_MODERADORES_USERNAMES` | Lista separada por vírgula de usernames autorizados nos endpoints `/api/moderacao/fotos` |
 
-`jambu.duracao-sessao` e `jambu.limite-autenticacao-minuto` também são propriedades
-configuráveis; começam em 24 horas e 20 tentativas por IP/minuto.
+`jambu.auth.*` configura acesso de 15 minutos, inatividade de 30 dias e limite
+absoluto de 180 dias. `jambu.limite-autenticacao-minuto` começa em 20 tentativas
+por IP/minuto para login e cadastro.
 O exemplo de variáveis está em [.env.example](.env.example). Configure o ambiente
 do processo ou `.env.local` para `iniciar-dev.ps1`. O Spring não carrega dotenv
 sozinho. Não existe mais

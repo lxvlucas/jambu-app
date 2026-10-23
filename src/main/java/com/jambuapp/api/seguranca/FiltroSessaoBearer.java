@@ -3,6 +3,7 @@ package com.jambuapp.api.seguranca;
 import java.io.IOException;
 import java.util.List;
 import com.jambuapp.api.autenticacao.AutenticacaoService;
+import com.jambuapp.api.comum.RegraNegocioException;
 import jakarta.servlet.*;
 import jakarta.servlet.http.*;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -11,20 +12,16 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 public class FiltroSessaoBearer extends OncePerRequestFilter {
     private final AutenticacaoService service;
-    private final LimiteAutenticacao limite;
-    public FiltroSessaoBearer(AutenticacaoService service, LimiteAutenticacao limite) {
+    public FiltroSessaoBearer(AutenticacaoService service) {
         this.service = service;
-        this.limite = limite;
     }
     @Override
     protected void doFilterInternal(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
             throws ServletException, IOException {
         String caminho = req.getServletPath();
-        if (req.getMethod().equals("POST") && (caminho.equals("/api/auth/login") || caminho.equals("/api/auth/cadastro"))
-                && !limite.permitir(req.getRemoteAddr())) {
-            res.setHeader("Retry-After", "60");
-            erro(res, 429, "limite_autenticacao", "Muitas tentativas. Aguarde um minuto.");
-            return;
+        // Esses endpoints validam sua própria credencial; Bearer expirado não bloqueia refresh/logout.
+        if (caminho.startsWith("/api/auth/web/") || caminho.equals("/api/auth/refresh") || caminho.equals("/api/auth/logout")) {
+            chain.doFilter(req, res); return;
         }
         String header = req.getHeader("Authorization");
         if (header != null) {
@@ -32,13 +29,11 @@ public class FiltroSessaoBearer extends OncePerRequestFilter {
                 erro(res, 401, "sessao_invalida", "Sessão inválida ou expirada.");
                 return;
             }
-            var principal = service.autenticar(header.substring(7));
-            if (principal.isEmpty()) {
-                erro(res, 401, "sessao_invalida", "Sessão inválida ou expirada.");
-                return;
-            }
+            com.jambuapp.api.seguranca.UsuarioAutenticado principal;
+            try { principal = service.validarAcesso(header.substring(7)); }
+            catch (RegraNegocioException ex) { erro(res, 401, ex.getCodigo(), ex.getMessage()); return; }
             var contexto = SecurityContextHolder.createEmptyContext();
-            contexto.setAuthentication(new UsernamePasswordAuthenticationToken(principal.get(), null, List.of()));
+            contexto.setAuthentication(new UsernamePasswordAuthenticationToken(principal, null, List.of()));
             SecurityContextHolder.setContext(contexto);
         }
         chain.doFilter(req, res);

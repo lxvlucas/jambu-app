@@ -10,7 +10,7 @@ class LimiteAutenticacaoTest {
     @Test
     void limitaTentativasPorIpELiberaNovaJanela() {
         var clock = new Relogio();
-        var properties = new JambuProperties(20, 2000, Duration.ofHours(24), 2, URI.create("http://localhost/api/meals/"));
+        var properties = new JambuProperties(20, 2000, 2, URI.create("http://localhost/api/meals/"));
         var limite = new LimiteAutenticacao(clock, properties);
         assertThat(limite.permitir("127.0.0.1")).isTrue();
         assertThat(limite.permitir("127.0.0.1")).isTrue();

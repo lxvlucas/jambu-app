@@ -91,7 +91,7 @@ class JambuApiApplicationTests {
         var conta = conta();
         var sessao = auth.login(new LoginRequest(conta.email(), SENHA));
         var principal = auth.autenticar(sessao.token()).orElseThrow();
-        String hash = jdbc.queryForObject("select token_hash from sessoes where id = ?", String.class, principal.sessaoId());
+        String hash = jdbc.queryForObject("select token_hash from tokens_acesso where sessao_id = ?", String.class, principal.sessaoId());
         assertThat(hash).isEqualTo(Hash.sha256(sessao.token())).isNotEqualTo(sessao.token());
         clock.agora = sessao.expiraEm();
         assertThat(auth.autenticar(sessao.token())).isEmpty();
