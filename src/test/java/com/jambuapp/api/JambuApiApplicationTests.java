@@ -150,6 +150,35 @@ class JambuApiApplicationTests {
     }
 
     @Test
+    void curtirEhUmaVezPorPessoaEDescurtirRemove() throws Exception {
+        // T20: PUT e DELETE idempotentes; só contas autenticadas; Meal excluída não recebe curtida.
+        var autor = conta();
+        var leitor = conta();
+        var meal = publicar(autor.id(), "4");
+        String tokenAutor = auth.login(new LoginRequest(autor.username(), SENHA)).token();
+        String tokenLeitor = auth.login(new LoginRequest(leitor.username(), SENHA)).token();
+        String caminho = "/api/meals/" + meal.id() + "/curtida";
+        assertThat(http("PUT", caminho, null, null, null).statusCode()).isEqualTo(401);
+        assertThat(http("PUT", caminho, tokenLeitor, null, null).statusCode()).isEqualTo(204);
+        assertThat(http("PUT", caminho, tokenLeitor, null, null).statusCode()).isEqualTo(204);
+        assertThat(json.readTree(http("GET", "/api/meals/" + meal.id() + "/curtidas", tokenLeitor, null, null).body()).path("quantidade").asInt())
+                .isEqualTo(1);
+        assertThat(http("PUT", caminho, tokenAutor, null, null).statusCode()).isEqualTo(204);
+        var resumoAutor = json.readTree(http("GET", "/api/meals/" + meal.id() + "/curtidas", tokenAutor, null, null).body());
+        assertThat(resumoAutor.path("quantidade").asInt()).isEqualTo(2);
+        assertThat(resumoAutor.path("curtidaPorMim").asBoolean()).isTrue();
+        assertThat(http("DELETE", caminho, tokenLeitor, null, null).statusCode()).isEqualTo(204);
+        assertThat(http("DELETE", caminho, tokenLeitor, null, null).statusCode()).isEqualTo(204);
+        var resumoLeitor = json.readTree(http("GET", "/api/meals/" + meal.id() + "/curtidas", tokenLeitor, null, null).body());
+        assertThat(resumoLeitor.path("quantidade").asInt()).isEqualTo(1);
+        assertThat(resumoLeitor.path("curtidaPorMim").asBoolean()).isFalse();
+        assertThat(jdbc.queryForObject("select count(*) from curtidas where meal_id = ?", Integer.class, meal.id())).isEqualTo(1);
+        meals.excluir(autor.id(), meal.id());
+        assertThat(http("PUT", caminho, tokenLeitor, null, null).statusCode()).isEqualTo(404);
+        assertThat(http("PUT", "/api/meals/" + UUID.randomUUID() + "/curtida", tokenLeitor, null, null).statusCode()).isEqualTo(404);
+    }
+
+    @Test
     void dataDaRefeicaoNoFuturoERecusadaNaPublicacaoENaEdicao() {
         // AGORA = 19/10/2026 12:00 em São Luís.
         UUID autor = conta().id();

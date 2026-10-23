@@ -56,6 +56,9 @@ campos desconhecidos são rejeitados no cadastro e na atualização.
 | `GET /api/meals/{id}` | Detalhe de Meal ativa |
 | `PUT /api/meals/{id}` | Edição completa, exige `versao`; apenas autor |
 | `DELETE /api/meals/{id}` | 204, exclusão lógica; apenas autor |
+| `PUT /api/meals/{id}/curtida` | 204; curtir, idempotente (uma curtida por pessoa); Meal excluída ou inexistente: 404 |
+| `DELETE /api/meals/{id}/curtida` | 204; descurtir, idempotente |
+| `GET /api/meals/{id}/curtidas` | `{ "quantidade": 2, "curtidaPorMim": true }` |
 | `GET /api/meals/{id}/link` | `{ "url": "..." }`; própria ou de conta seguida |
 | `GET /api/timeline` | Meals próprias e de contas seguidas |
 
