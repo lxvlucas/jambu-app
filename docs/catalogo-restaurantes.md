@@ -36,8 +36,11 @@ UUID. Reutilizar na mesma interação e trocar ao concluir ou abandonar; não é
 de autenticação. Não armazenar respostas Google como cache permanente.
 
 A busca local ignora acentos e pontuação e procura prefixos das palavras com índices
-GIN de full text e índice de prefixo do PostgreSQL, sem instalar extensões.
-Retorna até 20 sugestões ordenadas por correspondência exata, nome e UUID.
+GIN de full text e índice de prefixo do PostgreSQL. Desde a V6 usa também a extensão
+`pg_trgm` (índice GIN de trigramas): nomes parecidos (`%`, similaridade ≥ 0,3) e palavras
+parecidas dentro do nome (`<%`) entram, o que perdoa erros como "burguer". Também acha o
+restaurante pelo nome normalizado de pratos de Meals ativas. Ordem: nome exato, depois
+verificados antes de provisórios, depois maior semelhança, nome e UUID. Retorna até 20 sugestões.
 **Ver mais resultados** amplia para Google; não pagina as mesmas sugestões.
 
 ## Cadastro próprio e prevenção de duplicatas

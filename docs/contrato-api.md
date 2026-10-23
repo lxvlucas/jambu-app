@@ -125,7 +125,9 @@ Quando houver seleção externa, informar placeId e token para validar/vincular;
 somente o ID validado é persistido. /selecoes mantém compatibilidade para referências
 Google já existentes; não cria mais restaurante apenas com placeId.
 
-A busca local ignora acentos e usa prefixos das palavras; até 20 sugestões.
+A busca local ignora acentos, usa prefixos das palavras, tolera erro de digitação
+(trigramas) e também acha o restaurante pelo nome de pratos já avaliados; nome exato vem
+primeiro e verificados (`ATIVO`) antes de provisórios; até 20 sugestões.
 A ampliação é limitada a uma por segundo por usuário e 100 chamadas/dia para a
 API inteira, incluindo detalhes, no fuso America/Sao_Paulo. O token de busca
 não é o Bearer. Respostas incluem Cache-Control: no-store; manter atribuições visíveis.

@@ -101,6 +101,36 @@ class CatalogoRestaurantesTest {
         assertThat(places.chamadas.get()).isZero();
     }
 
+    @Test void buscaToleraErroDeDigitacaoSemChamarGoogle() {
+        // T06: trigramas (pg_trgm) perdoam "burguer" no lugar de "burger".
+        String sufixo = UUID.randomUUID().toString().substring(0, 8);
+        var criado = cadastros.cadastrar(autor, UUID.randomUUID().toString(), manual("Burger Night " + sufixo, -2.531, -44.301, Set.of()));
+        var busca = service.buscar("burguer nigth " + sufixo, null, false, autor);
+        assertThat(busca.locais()).extracting(RestauranteResumo::id).contains(criado.restaurante().id());
+        assertThat(busca.estadoExterno()).isEqualTo("NAO_SOLICITADO");
+        assertThat(places.chamadas.get()).isZero();
+    }
+
+    @Test void buscaAchaRestaurantePeloNomeDePratoJaAvaliado() {
+        String sufixo = UUID.randomUUID().toString().substring(0, 8);
+        var criado = cadastros.cadastrar(autor, UUID.randomUUID().toString(), manual("Casa Paraense " + sufixo, -2.532, -44.302, Set.of()));
+        meals.publicar(autor, UUID.randomUUID().toString(), new MealRequest(criado.restaurante().id(),
+                List.of(new DishRequest(null, "Tacacá " + sufixo, new BigDecimal("4.5"))), null, true, null, null, null));
+        var busca = service.buscar("tacaca " + sufixo, null, false, autor);
+        assertThat(busca.locais()).extracting(RestauranteResumo::id).containsExactly(criado.restaurante().id());
+        assertThat(places.chamadas.get()).isZero();
+    }
+
+    @Test void provisoriosAparecemDepoisDosVerificados() {
+        String sufixo = UUID.randomUUID().toString().substring(0, 8);
+        var provisorio = cadastros.cadastrar(autor, UUID.randomUUID().toString(), manual("Ponto " + sufixo + " Centro", -2.533, -44.303, Set.of()));
+        var verificado = cadastros.cadastrar(autor, UUID.randomUUID().toString(), manual("Ponto " + sufixo + " Praia", -2.50, -44.27, Set.of()));
+        jdbc.update("update restaurantes set situacao = 'ATIVO' where id = ?", verificado.restaurante().id());
+        var busca = service.buscar("ponto " + sufixo, null, false, autor);
+        assertThat(busca.locais()).extracting(RestauranteResumo::id)
+                .containsExactly(verificado.restaurante().id(), provisorio.restaurante().id());
+    }
+
     @Test void duplicataExigeConfirmacaoEOutraUnidadePodeSerCriada() {
         String nome = "Sabor " + UUID.randomUUID();
         var primeiro = cadastrar(nome);
