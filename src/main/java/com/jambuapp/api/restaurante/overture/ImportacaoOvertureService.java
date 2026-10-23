@@ -43,7 +43,10 @@ public class ImportacaoOvertureService {
         if (id == null) id = texto(feature, "id");
         if (id == null || !id.matches("[A-Za-z0-9_-]{1,128}"))
             throw RegraNegocioException.invalido("Feature sem identificador GERS válido.");
-        if (!"place".equals(props.path("type").asString())
+        // O export GeoJSON do cliente oficial omite a coluna de partição type.
+        // Este endpoint recebe Places; quando o tipo vier explícito, deve concordar.
+        var tipo = props.path("type");
+        if ((!tipo.isMissingNode() && !"place".equals(tipo.asString()))
                 || !"Point".equals(feature.path("geometry").path("type").asString()))
             return new Item(id, "IGNORADO_TIPO", null);
         var coords = feature.path("geometry").path("coordinates");

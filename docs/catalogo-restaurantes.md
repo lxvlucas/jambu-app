@@ -130,7 +130,9 @@ nem remoção de UUIDs/snapshots nesta entrega.
 
 `POST /api/moderacao/restaurantes/importacoes/overture` é exclusivo de revisores.
 Recebe `release`, `licencas` verificadas e até 200 `features` GeoJSON
-originais por lote. Usa identificador GERS, `version`, `names.primary`,
+originais por lote. Aceita GERS em `Feature.id` ou `properties.id`; o export do
+cliente oficial pode omitir `properties.type`. Quando informado, o tipo deve ser
+`place`; geometria e categoria alimentar continuam obrigatórias. Usa `version`, `names.primary`,
 `basic_category`/`taxonomy`, coordenadas, endereço disponível e `sources`.
 Preserva fontes, licenças, atribuição e release. Não interpreta `categories`
 do esquema antigo como se fosse o formato atual.
@@ -156,14 +158,18 @@ O script aceita somente localhost, arquivo até 32 MiB e envia lotes de 100,
 sem imprimir o Bearer. Pode ser repetido após interrupção. O importador não baixa
 URLs fornecidas em requisição, não importa todos os lugares do mundo e não possui
 agendador automático. A atualização periódica é operacional: repetir com um export
-regional da nova release. Nenhuma nova biblioteca de download foi instalada.
+regional da nova release. O cliente oficial `overturemaps==1.0.2` foi instalado
+em ambiente Python isolado `.local/overture-venv`, sem dependência nova na API.
 
 Fontes oficiais:
 [acesso e export GeoJSON](https://docs.overturemaps.org/getting-data/),
 [esquema Places atual](https://docs.overturemaps.org/guides/places/),
 [atribuição/licenças](https://docs.overturemaps.org/attribution/).
-**A carga real de São Luís ainda não foi realizada nesta implementação.**
-Os testes usam features explicitamente fictícias em PostgreSQL descartável.
+Em **23/10/2026**, a release `2026-10-21.0` alimentou o PostgreSQL local com
+**1.033 registros**: 966 ativos e 67 provisórios para revisão de possível duplicidade.
+A repetição manteve os UUIDs. Os testes automatizados continuam usando fixtures
+fictícias em PostgreSQL descartável. Veja a [evidência da carga](carga-overture-2026-10-23.md)
+e os [avisos de fontes e licenças](licencas/overture/README.md).
 
 ## Cota, migração e limites operacionais
 

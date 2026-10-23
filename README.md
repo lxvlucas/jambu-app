@@ -18,7 +18,14 @@ Veja [resultados e comandos de retomada](docs/persistencia-local-2026-10-20.md).
 Em 22/10/2026, o catálogo local passou a aceitar cadastros provisórios, revisão por UUID
 de conta, importações Overture e prevenção de duplicatas. A ampliação Google tem teto
 de 100 chamadas/dia persistido no banco. Veja o [contrato do catálogo](docs/catalogo-restaurantes.md)
-e as [evidências atuais](docs/verificacao-catalogo-2026-10-22.md).
+e as [evidências da implementação](docs/verificacao-catalogo-2026-10-22.md).
+
+Em 23/10/2026, foram carregados 1.033 registros reais do Overture de São Luís,
+com repetição idempotente e backups restaurados: 966 ativos e 67 provisórios
+para revisão de possíveis duplicatas. O importador foi compatibilizado com o
+GeoJSON do cliente oficial; o gate passou com 88 testes. Consulte a
+[carga e suas verificações](docs/carga-overture-2026-10-23.md) e os
+[avisos de atribuição e licenças](docs/licencas/overture/README.md).
 
 ## Executar localmente
 

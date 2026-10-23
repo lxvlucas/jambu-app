@@ -185,6 +185,25 @@ class CatalogoRestaurantesTest {
         assertThat(jdbc.queryForObject("select chamadas from consumo_places_diario where dia = ?", Integer.class, dia.plusDays(1))).isEqualTo(1);
     }
 
+    @Test void importaGeoJsonDoClienteOficialSemTipoNasPropriedades() {
+        String gers = UUID.randomUUID().toString();
+        var feature = featureClienteOficial(gers);
+        var item = importacao.importar(REVISOR, lote("2026-10-21.0", feature)).itens().getFirst();
+        assertThat(item.restauranteId()).isNotNull();
+        assertThat(restaurantes.findByOvertureId(gers)).isPresent();
+        assertThat(importacao.importar(REVISOR, lote("2026-10-21.0", feature)).itens().getFirst().resultado())
+                .isEqualTo("INALTERADO");
+    }
+
+    @Test void importacaoContinuaIgnorandoTipoExplicitamenteDiferenteDePlace() {
+        String gers = UUID.randomUUID().toString();
+        var feature = json.readTree(featureClienteOficial(gers).toString()
+                .replace("\"basic_category\":", "\"type\":\"building\",\"basic_category\":"));
+        assertThat(importacao.importar(REVISOR, lote("2026-10-21.0", feature)).itens().getFirst().resultado())
+                .isEqualTo("IGNORADO_TIPO");
+        assertThat(restaurantes.findByOvertureId(gers)).isEmpty();
+    }
+
     @Test void importacaoRepetivelAtualizaSemApagarCorrecaoOuRejeicao() {
         String gers = UUID.randomUUID().toString();
         var feature = feature(gers, "Restaurante Overture " + UUID.randomUUID(), 1);
@@ -287,6 +306,14 @@ class CatalogoRestaurantesTest {
                 "properties", Map.of("id", id, "type", "place", "version", versao, "names", Map.of("primary", nome),
                         "basic_category", "casual_eatery", "taxonomy", Map.of("primary", "casual_eatery", "hierarchy", List.of("food_and_drink", "restaurant")),
                         "sources", List.of(Map.of("dataset", "meta", "record_id", "fixture")), "confidence", 0.95)));
+    }
+    private JsonNode featureClienteOficial(String id) {
+        // Estrutura do export overturemaps 1.0.2, com dados inteiramente fictícios.
+        return json.valueToTree(Map.of("type", "Feature", "id", id,
+                "geometry", Map.of("type", "Point", "coordinates", List.of(-44.30, -2.53)),
+                "properties", Map.of("version", 1, "names", Map.of("primary", id),
+                        "basic_category", "restaurant", "sources", List.of(Map.of(
+                        "dataset", "meta", "license", "CDLA-Permissive-2.0", "record_id", "fixture")))));
     }
     private <T> List<T> paralelo(int quantidade, java.util.function.IntFunction<T> operacao) throws Exception {
         try (var executor = Executors.newFixedThreadPool(Math.min(12, quantidade))) {
