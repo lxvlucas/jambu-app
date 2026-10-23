@@ -123,6 +123,56 @@ class JambuApiApplicationTests {
     }
 
     @Test
+    void dishGuardaComeriaDeNovoComoMarcacaoOpcionalEPrecoOpcional() {
+        // "Comeria de novo" é uma marcação: marcado (true) ou desmarcado (false). Desmarcado não quer dizer
+        // "não comeria" (a pessoa pode ter esquecido), então ausente vira false e nunca fica nulo. Preço continua opcional.
+        UUID autor = conta().id();
+        var pedido = new MealRequest(restaurante, List.of(
+                new DishRequest(null, "Tacacá", new BigDecimal("4.5"), true, new BigDecimal("32.5")),
+                new DishRequest(null, "Pato no tucupi", new BigDecimal("4"), false, null),
+                new DishRequest(null, "Suco de cupuaçu", new BigDecimal("5"), null, null)),
+                null, null, null, null, null);
+        var meal = meals.publicar(autor, "dish-completo", pedido);
+        assertThat(meal.comeriaNovamente()).isFalse();
+        assertThat(meal.dishes()).extracting(MealResponse.DishResponse::comeriaNovamente).containsExactly(true, false, false);
+        assertThat(meal.dishes()).extracting(MealResponse.DishResponse::preco)
+                .containsExactly(new BigDecimal("32.50"), null, null);
+        assertThat(consultas.consultar(meal.id())).isEqualTo(meal);
+        var linhas = jdbc.queryForList("select nome, comeria_novamente, preco from dishes where meal_id = ? order by ordem", meal.id());
+        assertThat(linhas.get(1).get("comeria_novamente")).isEqualTo(false);
+        assertThat(linhas.get(2).get("comeria_novamente")).isEqualTo(false);
+        // O banco também não aceita nulo: as duas colunas são NOT NULL com padrão false (V7).
+        assertThat(jdbc.queryForList("""
+                select table_name from information_schema.columns
+                where column_name = 'comeria_novamente' and is_nullable = 'NO' and column_default = 'false'
+                order by table_name""", String.class)).containsExactly("dishes", "meals");
+        assertThat(linhas.get(1).get("preco")).isNull();
+        // Pedido sem os campos novos continua com o mesmo JSON de antes (hash de idempotência estável).
+        assertThat(json.writeValueAsString(new DishRequest(null, "Prato", new BigDecimal("4.5"))))
+                .doesNotContain("comeriaNovamente", "preco");
+        assertThatThrownBy(() -> meals.publicar(autor, "preco-negativo", new MealRequest(restaurante,
+                List.of(new DishRequest(null, "Prato", new BigDecimal("4"), null, new BigDecimal("-1"))), null, null, null, null, null)))
+                .isInstanceOf(RegraNegocioException.class);
+    }
+
+    @Test
+    void dataDaRefeicaoNoFuturoERecusadaNaPublicacaoENaEdicao() {
+        // AGORA = 19/10/2026 12:00 em São Luís.
+        UUID autor = conta().id();
+        var futuro = new MealRequest(restaurante, List.of(new DishRequest(null, "Prato", new BigDecimal("4"))),
+                null, true, null, java.time.LocalDate.of(2026, 10, 20), null);
+        assertThatThrownBy(() -> meals.publicar(autor, "futuro", futuro))
+                .isInstanceOfSatisfying(RegraNegocioException.class, ex -> assertThat(ex.getMessage()).contains("futuro"));
+        var hoje = meals.publicar(autor, "hoje", new MealRequest(restaurante, List.of(new DishRequest(null, "Prato", new BigDecimal("4"))),
+                null, true, null, java.time.LocalDate.of(2026, 10, 19), null));
+        assertThat(hoje.dataRefeicao()).isEqualTo(java.time.LocalDate.of(2026, 10, 19));
+        assertThatThrownBy(() -> meals.editar(autor, hoje.id(), new MealRequest(restaurante,
+                List.of(new DishRequest(hoje.dishes().getFirst().id(), "Prato", new BigDecimal("4"))), null, true, null,
+                java.time.LocalDate.of(2026, 10, 25), hoje.versao())))
+                .isInstanceOf(RegraNegocioException.class);
+    }
+
+    @Test
     void mediasTemPesoIgualPorMealETrocaDeRestauranteEExclusaoRefletemNaConsulta() {
         var autor = conta();
         var primeira = publicar(autor.id(), "5");

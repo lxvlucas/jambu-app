@@ -141,9 +141,12 @@ public class MealService {
         if (request.review() != null && request.review().length() > config.limiteReview())
             throw RegraNegocioException.invalido("Review excede o limite de caracteres.");
         request.dishes().forEach(d -> Dish.validarNota(d.nota()));
+        if (request.dataRefeicao() != null && request.dataRefeicao().isAfter(clock.instant().atZone(FUSO).toLocalDate()))
+            throw RegraNegocioException.invalido("A data da refeição não pode estar no futuro.");
         String review = request.review() == null || request.review().isBlank() ? null : request.review().strip();
         return new MealRequest(request.restauranteId(), request.dishes().stream()
-                .map(d -> new DishRequest(d.id(), d.nome().strip(), d.nota().setScale(1))).toList(),
+                .map(d -> new DishRequest(d.id(), d.nome().strip(), d.nota().setScale(1), d.comeriaNovamente(),
+                        d.preco() == null ? null : d.preco().setScale(2, java.math.RoundingMode.HALF_UP))).toList(),
                 review, request.comeriaNovamente(), request.modalidade(), request.dataRefeicao(), request.versao());
     }
 }

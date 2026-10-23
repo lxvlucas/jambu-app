@@ -18,17 +18,25 @@ public class Dish {
     private BigDecimal nota;
     @Column(nullable = false)
     private int ordem;
+    /** Marcação "comeria de novo": desmarcado (false) não quer dizer "não comeria". */
+    @Column(nullable = false)
+    private boolean comeriaNovamente;
+    @Column(precision = 8, scale = 2)
+    private BigDecimal preco;
     protected Dish() {}
-    Dish(Meal meal, String nome, BigDecimal nota) {
+    Dish(Meal meal, DishRequest item) {
         this.meal = meal;
-        atualizar(nome, nota);
+        atualizar(item);
     }
-    public void atualizar(String nome, BigDecimal nota) {
-        if (nome == null || nome.isBlank() || nome.strip().length() > 150)
+    public void atualizar(DishRequest item) {
+        if (item.nome() == null || item.nome().isBlank() || item.nome().strip().length() > 150)
             throw RegraNegocioException.invalido("Informe um nome de Dish com até 150 caracteres.");
-        validarNota(nota);
-        this.nome = nome.strip();
-        this.nota = nota;
+        validarNota(item.nota());
+        if (item.preco() != null && item.preco().signum() < 0) throw RegraNegocioException.invalido("Preço não pode ser negativo.");
+        this.nome = item.nome().strip();
+        this.nota = item.nota();
+        this.comeriaNovamente = Boolean.TRUE.equals(item.comeriaNovamente());
+        this.preco = item.preco();
     }
     public static void validarNota(BigDecimal nota) {
         if (nota == null || nota.compareTo(new BigDecimal("0.5")) < 0 || nota.compareTo(new BigDecimal("5")) > 0
@@ -42,4 +50,6 @@ public class Dish {
     public UUID getId() { return id; }
     public String getNome() { return nome; }
     public BigDecimal getNota() { return nota; }
+    public boolean getComeriaNovamente() { return comeriaNovamente; }
+    public BigDecimal getPreco() { return preco; }
 }

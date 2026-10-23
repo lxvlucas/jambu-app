@@ -158,7 +158,7 @@ envio após falha de rede; use chave nova para uma nova publicação.
 {
   "restauranteId": "UUID_LOCAL_RETORNADO_PELA_SELECAO",
   "dishes": [
-    { "nome": "Arroz de cuxá", "nota": 4.5 },
+    { "nome": "Arroz de cuxá", "nota": 4.5, "comeriaNovamente": true, "preco": 32.50 },
     { "nome": "Peixe", "nota": 5 }
   ],
   "review": "Refeição de teste.",
@@ -168,8 +168,12 @@ envio após falha de rede; use chave nova para uma nova publicação.
 }
 ```
 
-`review`, `modalidade` e `dataRefeicao` são opcionais. Modalidades: `PRESENCIAL`,
-`DELIVERY`, `RETIRADA`. `comeriaNovamente` é obrigatório. São permitidos 1–20 Dishes
+`review`, `modalidade` e `dataRefeicao` são opcionais; `dataRefeicao` no futuro (fuso de São
+Luís) é recusada com 400. Modalidades: `PRESENCIAL`, `DELIVERY`, `RETIRADA`. Em cada Dish,
+`comeriaNovamente` e `preco` (≥ 0, até 2 casas) são opcionais. `comeriaNovamente` é uma marcação:
+`true` (marcado) ou `false` (desmarcado); ausente é gravado como `false`, e a resposta sempre traz
+`true` ou `false`. Desmarcado não quer dizer "não comeria". `preco` ausente continua `null`, nunca 0.
+O `comeriaNovamente` da Meal inteira continua aceito por compatibilidade, com a mesma regra. São permitidos 1–20 Dishes
 por padrão; nomes até 150 caracteres; notas de 0,5 a 5 em passos de 0,5.
 Review até 2.000 caracteres por padrão. Não enviar `autorId`, `notaOverall`,
 instantes de auditoria, versão ou IDs de Dishes na criação.
