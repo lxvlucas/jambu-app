@@ -32,6 +32,25 @@ public class RevisaoRestauranteService {
         return PaginaResponse.de(restaurantes.findBySituacao(situacao, PageRequest.of(pagina, limite,
                 Sort.by("criadoEm").ascending().and(Sort.by("id")))).map(RestauranteResumo::de));
     }
+    /** Correções sugeridas pela 2ª conta (T08, RN-58) ainda sem revisão, das mais antigas para as mais novas. */
+    @Transactional(readOnly = true)
+    public PaginaResponse<CorrecaoPendenteResponse> correcoesPendentes(UUID usuarioId, int pagina, int limite) {
+        exigirRevisor(usuarioId);
+        if (pagina < 0 || limite < 1 || limite > 50) throw RegraNegocioException.invalido("Paginação inválida.");
+        var itens = jdbc.query("""
+                select c.id, c.restaurante_id, r.nome, r.versao, c.nome_sugerido, c.observacao, c.usuario_id, c.criado_em
+                from retornos_restaurantes c join restaurantes r on r.id = c.restaurante_id
+                where c.tipo = 'CORRECAO' and c.resolvido_em is null
+                order by c.criado_em, c.id limit ? offset ?
+                """, (rs, i) -> new CorrecaoPendenteResponse(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class),
+                rs.getString(3), rs.getLong(4), rs.getString(5), rs.getString(6), rs.getObject(7, UUID.class),
+                rs.getTimestamp(8).toInstant()), limite, (long) pagina * limite);
+        Long total = jdbc.queryForObject(
+                "select count(*) from retornos_restaurantes where tipo = 'CORRECAO' and resolvido_em is null", Long.class);
+        return new PaginaResponse<>(itens, pagina, total == null ? 0 : total);
+    }
+    public record CorrecaoPendenteResponse(UUID id, UUID restauranteId, String nomeAtual, long versaoRestaurante,
+            String nomeSugerido, String observacao, UUID usuarioId, java.time.Instant criadoEm) {}
     public RestauranteResumo revisar(UUID revisor, UUID id, RevisaoRestauranteRequest request) {
         exigirRevisor(revisor);
         catalogo.bloquearCatalogo();
@@ -52,6 +71,9 @@ public class RevisaoRestauranteService {
                 values (?,?,?,?,?,?,?)
                 """, UUID.randomUUID(), id, revisor, anterior.name(), request.situacao().name(),
                 request.motivo().strip(), java.sql.Timestamp.from(clock.instant()));
+        // A revisão do lugar resolve as correções sugeridas para ele (T08).
+        jdbc.update("update retornos_restaurantes set resolvido_em = ? where restaurante_id = ? and tipo = 'CORRECAO' and resolvido_em is null",
+                java.sql.Timestamp.from(clock.instant()), id);
         return RestauranteResumo.de(r);
     }
 }
