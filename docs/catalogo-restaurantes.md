@@ -152,8 +152,14 @@ cliente oficial pode omitir `properties.type`. Quando informado, o tipo deve ser
 Preserva fontes, licenças, atribuição e release. Não interpreta `categories`
 do esquema antigo como se fosse o formato atual.
 
-Filtra alimentação, área do catálogo, fechamento informado e confiança abaixo de 0,7.
-Ausência de confiança não é tratada como nota zero. Feature sem nome, ID, versão
+Filtra alimentação, área do catálogo e fechamento informado. A confiança separa em faixas (T04):
+**≥ 0,7** entra verificado (`CRIADO`, `ATIVO`); **0,5 a 0,7** entra provisório (`CRIADO_PROVISORIO`),
+depois dos verificados na busca; **0,3 a 0,5** fica na tabela `referencias_overture`
+(`ESCONDIDO`), fora da busca, das duplicatas e do perfil, só para casar um lugar escolhido no
+Google com o nome e o pin do Overture (T05); **abaixo de 0,3** fica fora (`IGNORADO_BAIXA_CONFIANCA`).
+A faixa só decide a situação na criação. Um restaurante que já está no catálogo não é escondido se
+a confiança cair; um escondido que sobe para 0,5 ou mais numa release nova vira restaurante e sai
+da tabela escondida. Ausência de confiança não é tratada como nota zero: vale como ≥ 0,7. Feature sem nome, ID, versão
 ou fontes válidas rejeita o lote inteiro. Um mesmo GERS mantém o UUID nas atualizações;
 release/versão anterior é ignorada e a mesma revisão é repetível. Correções locais
 e decisões humanas de rejeição não são sobrescritas. Possível colisão com outro UUID
