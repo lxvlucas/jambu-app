@@ -28,8 +28,6 @@ public class CadastroRestauranteService {
             throw RegraNegocioException.invalido("Dados ou Idempotency-Key do cadastro inválidos.");
         if (NomesRestaurantes.normalizar(entrada.nome()).length() < 2)
             throw RegraNegocioException.invalido("Informe um nome com pelo menos duas letras ou números.");
-        if (!entrada.categoria().aceitaCadastro())
-            throw RegraNegocioException.invalido(CategoriaRestaurante.MENSAGEM_CATEGORIAS);
         area.exigir(entrada.latitude(), entrada.longitude());
         var r = new CadastroRestauranteRequest(entrada.nome().strip(), entrada.latitude(), entrada.longitude(),
                 entrada.categoria(), entrada.googlePlaceId(), entrada.tokenSessao(), entrada.distintosConfirmados());

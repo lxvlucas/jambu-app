@@ -344,11 +344,20 @@ class CatalogoRestaurantesTest {
                 .isEqualTo("CRIADO");
     }
 
-    @Test void categoriaPracaDeAlimentacaoNaoEntraMaisNoCatalogo() {
-        // T09: 6 categorias; a 7ª fica só para leitura de dados antigos.
-        assertThatThrownBy(() -> cadastros.cadastrar(autor, "praca", new CadastroRestauranteRequest("Praça " + UUID.randomUUID(),
-                -2.53, -44.30, CategoriaRestaurante.PRACA_ALIMENTACAO, null, null, Set.of())))
-                .isInstanceOfSatisfying(RegraNegocioException.class, ex -> assertThat(ex.getCodigo()).isEqualTo("dados_invalidos"));
+    @Test void categoriasSaoSoAsSeisDoEnum() throws Exception {
+        // O enum é a lista de categorias: fora dele, a API, o banco e a importação recusam.
+        assertThat(CategoriaRestaurante.values()).extracting(Enum::name)
+                .containsExactly("RESTAURANTE", "CAFE", "PADARIA", "BAR", "LANCHONETE", "SORVETERIA");
+        String username = jdbc.queryForObject("select username from usuarios where id = ?", String.class, autor);
+        String token = auth.login(new LoginRequest(username, SENHA)).token();
+        var corpo = (tools.jackson.databind.node.ObjectNode) json.valueToTree(manual("Praça " + UUID.randomUUID(), -2.53, -44.30, Set.of()));
+        corpo.put("categoria", "PRACA_ALIMENTACAO");
+        var recusado = http("POST", "/api/restaurantes/cadastros", token, json.writeValueAsString(corpo), "praca-http");
+        assertThat(recusado.statusCode()).isEqualTo(400);
+        assertThat(recusado.body()).contains("requisicao_invalida");
+        var criado = cadastros.cadastrar(autor, "categoria-banco", manual("Lugar " + UUID.randomUUID(), -2.53, -44.30, Set.of()));
+        assertThatThrownBy(() -> jdbc.update("update restaurantes set categoria = 'PRACA_ALIMENTACAO' where id = ?", criado.restaurante().id()))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
         var praca = (tools.jackson.databind.node.ObjectNode) feature(UUID.randomUUID().toString(), "Praça " + UUID.randomUUID(), 1);
         ((tools.jackson.databind.node.ObjectNode) praca.path("properties")).put("basic_category", "food_court");
         ((tools.jackson.databind.node.ObjectNode) praca.path("properties")).set("taxonomy",

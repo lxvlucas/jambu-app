@@ -43,7 +43,6 @@ public class RevisaoRestauranteService {
             var c = request.correcao();
             area.exigir(c.latitude(), c.longitude());
             if (NomesRestaurantes.normalizar(c.nome()).length() < 2) throw RegraNegocioException.invalido("Nome inválido.");
-            if (!c.categoria().aceitaCadastro()) throw RegraNegocioException.invalido(CategoriaRestaurante.MENSAGEM_CATEGORIAS);
             r.corrigir(c.nome(), c.latitude(), c.longitude(), c.categoria(), clock.instant());
         }
         r.revisar(request.situacao(), clock.instant());

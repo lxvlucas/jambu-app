@@ -60,9 +60,10 @@ verificados antes de provisórios, depois maior semelhança, nome e UUID. Retorn
 }
 ```
 
-Categorias aceitas: RESTAURANTE, CAFE, PADARIA, BAR, LANCHONETE, SORVETERIA. `PRACA_ALIMENTACAO`
-continua no enum só para ler dados antigos: cadastro e revisão a recusam com 400 e a importação
-ignora `food_court` (`IGNORADO_CATEGORIA`). Cada pessoa adiciona até `JAMBU_LIMITE_CADASTROS_DIA`
+Categorias aceitas: as do enum `CategoriaRestaurante` (RESTAURANTE, CAFE, PADARIA, BAR, LANCHONETE,
+SORVETERIA). Valor fora do enum dá 400 `requisicao_invalida`, o banco também recusa
+(`ck_restaurante_categoria`, V10) e a importação ignora o que não mapeia para uma delas, como
+`food_court` (`IGNORADO_CATEGORIA`). Cada pessoa adiciona até `JAMBU_LIMITE_CADASTROS_DIA`
 lugares novos por dia (padrão 5, fuso de São Luís); acima disso, **429 `limite_cadastros`** com
 `Retry-After` em segundos até a meia-noite local. Reutilizar um lugar, repetir uma chave ou receber
 `CONFIRMAR_DUPLICATAS` não conta.

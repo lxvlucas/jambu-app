@@ -105,8 +105,6 @@ public class ImportacaoOvertureService {
         if (basica != null) categorias.add(basica);
         if (primaria != null) categorias.add(primaria);
         for (var item : props.path("taxonomy").path("hierarchy")) if (item.isString()) categorias.add(item.asString());
-        // Praça de alimentação é onde ficam os lugares, não um tipo de lugar (T09): não entra no catálogo.
-        if (categorias.contains("food_court")) return null;
         if (categorias.contains("bakery")) return CategoriaRestaurante.PADARIA;
         if (categorias.contains("ice_cream_shop")) return CategoriaRestaurante.SORVETERIA;
         if (categorias.contains("cafe") || categorias.contains("coffee_shop")) return CategoriaRestaurante.CAFE;
