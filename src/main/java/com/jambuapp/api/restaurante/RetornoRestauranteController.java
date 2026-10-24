@@ -12,6 +12,11 @@ import org.springframework.web.bind.annotation.*;
 public class RetornoRestauranteController {
     private final RetornoRestauranteService retornos;
     public RetornoRestauranteController(RetornoRestauranteService retornos) { this.retornos = retornos; }
+    @GetMapping("/confirmacao")
+    public ResponseEntity<RetornoRestauranteService.PerguntaConfirmacaoResponse> pergunta(
+            @AuthenticationPrincipal UsuarioAutenticado principal, @PathVariable UUID id) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(retornos.pergunta(principal.usuarioId(), id));
+    }
     @PostMapping("/retornos")
     public ResponseEntity<RetornoRestauranteService.RetornoRestauranteResponse> responder(
             @AuthenticationPrincipal UsuarioAutenticado principal, @PathVariable UUID id,

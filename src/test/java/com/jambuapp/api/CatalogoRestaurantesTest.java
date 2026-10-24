@@ -439,6 +439,24 @@ class CatalogoRestaurantesTest {
                 String.class, lugar)).containsExactlyInAnyOrder(segunda + ":CORRECAO", terceira + ":CONFIRMACAO");
     }
 
+    @Test void perguntaNomeEBairroSoParaSegundaContaQueAindaNaoRespondeu() throws Exception {
+        // T08 (R20): quem cadastrou e quem não postou não veem a pergunta; ela some depois da resposta.
+        var lugar = cadastrar("Lugar da pergunta " + UUID.randomUUID()).restaurante().id();
+        String caminho = "/api/restaurantes/" + lugar + "/confirmacao";
+        publicar(lugar);
+        UUID semMeal = conta(), segunda = conta();
+        assertThat(http("GET", caminho, null, null, null).statusCode()).isEqualTo(401);
+        assertThat(podeConfirmar(caminho, token(autor))).isFalse();
+        assertThat(podeConfirmar(caminho, token(semMeal))).isFalse();
+        assertThat(podeConfirmar(caminho, token(segunda))).isFalse();
+        meals.publicar(segunda, UUID.randomUUID().toString(), mealEm(lugar));
+        assertThat(podeConfirmar(caminho, token(segunda))).isTrue();
+        http("POST", "/api/restaurantes/" + lugar + "/retornos", token(segunda), "{\"tipo\":\"CORRECAO\",\"observacao\":\"Fechou\"}", null);
+        assertThat(podeConfirmar(caminho, token(segunda))).isFalse();
+        assertThat(codigo(http("GET", "/api/restaurantes/" + UUID.randomUUID() + "/confirmacao", token(segunda), null, null)))
+                .isEqualTo("recurso_inexistente");
+    }
+
     @Test void contratoHttpProtegeCadastroEAdministracao() throws Exception {
         String username = jdbc.queryForObject("select username from usuarios where id = ?", String.class, autor);
         String token = auth.login(new LoginRequest(username, SENHA)).token();
@@ -465,6 +483,11 @@ class CatalogoRestaurantesTest {
     }
     private MealRequest mealEm(UUID restauranteId) {
         return new MealRequest(restauranteId, List.of(new DishRequest(null, "Prato", new BigDecimal("4"))), null, null, null, null, null);
+    }
+    private boolean podeConfirmar(String caminho, String token) throws Exception {
+        var resposta = http("GET", caminho, token, null, null);
+        assertThat(resposta.statusCode()).isEqualTo(200);
+        return json.readTree(resposta.body()).path("podeConfirmar").asBoolean();
     }
     private String codigo(HttpResponse<String> resposta) {
         return json.readTree(resposta.body()).path("codigo").asString();

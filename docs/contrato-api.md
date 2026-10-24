@@ -52,6 +52,7 @@ campos desconhecidos são rejeitados no cadastro e na atualização.
 | `POST /api/moderacao/restaurantes/importacoes/overture` | Importação administrativa de lote GeoJSON |
 | `GET /api/restaurantes/{id}` | Perfil só com dados do Jambu; nota e `ultimaAvaliacaoEm` ausentes quando não há Meals |
 | `GET /api/restaurantes/{id}/meals` | Meals ativas, por cursor |
+| `GET /api/restaurantes/{id}/confirmacao` | `{ "podeConfirmar": true }` quando o app deve perguntar "Nome e bairro estão certos?" |
 | `POST /api/restaurantes/{id}/retornos` | Resposta da 2ª conta a "Nome e bairro estão certos?": `CONFIRMACAO` verifica, `CORRECAO` mantém provisório |
 | `POST /api/meals` | 201, exige `Idempotency-Key`; header Location |
 | `GET /api/meals/{id}` | Detalhe de Meal ativa |
@@ -156,6 +157,11 @@ e tem Meal ativa nele (senão 403 `acesso_negado`); lugar inexistente ou rejeita
 verificado dá 409 `conflito`. Cada pessoa responde uma vez por lugar: repetir a mesma resposta devolve
 200 de novo (seguro para reenviar); mandar outra dá 409. `CONFIRMACAO` leva o lugar a `ATIVO`;
 `CORRECAO` o mantém `PROVISORIO` até a revisão dos founders.
+
+`GET /api/restaurantes/{id}/confirmacao` diz se o app deve fazer a pergunta, por exemplo logo depois
+de publicar: `{ "podeConfirmar": true }` só quando o lugar é provisório, a pessoa não o cadastrou, tem
+Meal ativa nele e ainda não respondeu. Fica fora da resposta da Meal porque muda com o tempo e por
+pessoa, e a resposta da publicação é guardada para a idempotência. Lugar inexistente ou rejeitado: 404.
 
 Contrato completo, revisão por UUID, importação e exemplos:
 [catálogo de restaurantes](catalogo-restaurantes.md).

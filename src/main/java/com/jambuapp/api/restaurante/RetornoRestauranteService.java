@@ -54,6 +54,17 @@ public class RetornoRestauranteService {
         restaurantes.flush();
         return new RetornoRestauranteResponse(request.tipo(), r.getSituacao());
     }
+    /** O app pergunta "Nome e bairro estão certos?" só quando isto é true (T08, R20). */
+    @Transactional(readOnly = true)
+    public PerguntaConfirmacaoResponse pergunta(UUID usuarioId, UUID restauranteId) {
+        var r = existente(restauranteId);
+        boolean pode = r.getSituacao() == SituacaoRestaurante.PROVISORIO && !usuarioId.equals(r.getCriadoPor())
+                && temMealAtiva(usuarioId, restauranteId)
+                && !Boolean.TRUE.equals(jdbc.queryForObject(
+                        "select exists(select 1 from retornos_restaurantes where restaurante_id = ? and usuario_id = ?)",
+                        Boolean.class, restauranteId, usuarioId));
+        return new PerguntaConfirmacaoResponse(pode);
+    }
     private Restaurante existente(UUID restauranteId) {
         var r = restaurantes.findById(restauranteId).orElseThrow(RegraNegocioException::inexistente);
         if (r.getSituacao() == SituacaoRestaurante.REJEITADO) throw RegraNegocioException.inexistente();
@@ -71,5 +82,6 @@ public class RetornoRestauranteService {
         return valor == null || valor.isBlank() ? null : valor.strip();
     }
     private record Resposta(String tipo, String nome, String observacao) {}
+    public record PerguntaConfirmacaoResponse(boolean podeConfirmar) {}
     public record RetornoRestauranteResponse(TipoRetorno tipo, SituacaoRestaurante situacaoRestaurante) {}
 }
