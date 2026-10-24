@@ -1,5 +1,6 @@
 package com.jambuapp.api.restaurante;
 
+import java.net.URI;
 import java.util.*;
 import com.jambuapp.api.comum.RegraNegocioException;
 import com.jambuapp.api.restaurante.places.*;
@@ -49,24 +50,31 @@ public class RestauranteService {
                 new RegraNegocioException(HttpStatus.UNPROCESSABLE_CONTENT, "cadastro_necessario",
                         "Informe nome, pin e categoria próprios em POST /api/restaurantes/cadastros."));
         local.exigirSelecionavel(id);
-        return resposta(local.consultar(id), null);
+        return resposta(local.consultar(id));
     }
+    /** O perfil nunca consulta o Google: a cota só afeta achar lugares novos. */
     public RestauranteResponse consultar(UUID id) {
-        var dados = local.consultar(id);
-        // Conteúdo próprio/Overture torna o perfil independente do Google.
-        if (dados.restaurante().nome() != null || dados.restaurante().googlePlaceId() == null)
-            return resposta(dados, null);
-        try { return resposta(dados, places.consultar(dados.restaurante().googlePlaceId(), null)); }
-        catch (PlacesException ex) { return resposta(dados, null); }
+        return resposta(local.consultar(id));
     }
     public void exigirExistente(UUID id) { local.exigirExistente(id); }
-    private RestauranteResponse resposta(RestauranteLocalService.DadosLocais dados, DadosLugar externo) {
+    private RestauranteResponse resposta(RestauranteLocalService.DadosLocais dados) {
         var r = dados.restaurante();
-        return new RestauranteResponse(r.id(), r.googlePlaceId(),
-                externo != null ? externo.nome() : r.nome(), externo != null ? externo.endereco() : r.endereco(),
-                externo != null, r.origem().name(), externo == null ? null : externo.googleMapsUri(),
-                externo == null ? List.of() : externo.atribuicoes(), externo == null ? null : "Google Maps",
+        return new RestauranteResponse(r.id(), r.googlePlaceId(), r.nome(), r.endereco(),
+                false, r.origem().name(), linkMaps(r), List.of(), null,
                 dados.notaMedia(), dados.quantidadeAvaliacoes(), r.situacao(), r.latitude(), r.longitude(),
-                r.categoria(), r.overtureId(), r.atribuicaoCatalogo(), r.versao());
+                r.categoria(), r.overtureId(), r.atribuicaoCatalogo(), r.versao(), dados.ultimaAvaliacaoEm());
+    }
+    /** Maps URLs não exigem chave nem são cobradas; query_place_id prevalece sobre query. */
+    static URI linkMaps(RestauranteResumo r) {
+        String base = "https://www.google.com/maps/search/?api=1&query=";
+        String ponto = r.latitude() == null || r.longitude() == null ? null : r.latitude() + "," + r.longitude();
+        if (r.googlePlaceId() != null) {
+            String consulta = r.nome() != null ? r.nome() : ponto != null ? ponto : "restaurante";
+            return URI.create(base + codificar(consulta) + "&query_place_id=" + codificar(r.googlePlaceId()));
+        }
+        return ponto == null ? null : URI.create(base + codificar(ponto));
+    }
+    private static String codificar(String valor) {
+        return java.net.URLEncoder.encode(valor, java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20");
     }
 }

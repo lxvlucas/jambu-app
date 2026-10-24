@@ -36,8 +36,11 @@ UUID. Reutilizar na mesma interação e trocar ao concluir ou abandonar; não é
 de autenticação. Não armazenar respostas Google como cache permanente.
 
 A busca local ignora acentos e pontuação e procura prefixos das palavras com índices
-GIN de full text e índice de prefixo do PostgreSQL, sem instalar extensões.
-Retorna até 20 sugestões ordenadas por correspondência exata, nome e UUID.
+GIN de full text e índice de prefixo do PostgreSQL. Desde a V6 usa também a extensão
+`pg_trgm` (índice GIN de trigramas): nomes parecidos (`%`, similaridade ≥ 0,3) e palavras
+parecidas dentro do nome (`<%`) entram, o que perdoa erros como "burguer". Também acha o
+restaurante pelo nome normalizado de pratos de Meals ativas. Ordem: nome exato, depois
+verificados antes de provisórios, depois maior semelhança, nome e UUID. Retorna até 20 sugestões.
 **Ver mais resultados** amplia para Google; não pagina as mesmas sugestões.
 
 ## Cadastro próprio e prevenção de duplicatas
@@ -57,10 +60,18 @@ Retorna até 20 sugestões ordenadas por correspondência exata, nome e UUID.
 }
 ```
 
-Categorias: RESTAURANTE, CAFE, PADARIA, BAR, LANCHONETE, SORVETERIA, PRACA_ALIMENTACAO.
-O pin é validado contra a malha municipal simplificada IBGE de São Luís. Uma malha
-simplificada pode exigir revisão de pontos próximos à divisa; o fornecedor do
-mapa da futura interface continua por definir.
+Categorias aceitas: as do enum `CategoriaRestaurante` (RESTAURANTE, CAFE, PADARIA, BAR, LANCHONETE,
+SORVETERIA). Valor fora do enum dá 400 `requisicao_invalida`, o banco também recusa
+(`ck_restaurante_categoria`, V10) e a importação ignora o que não mapeia para uma delas, como
+`food_court` (`IGNORADO_CATEGORIA`). Cada pessoa adiciona até `JAMBU_LIMITE_CADASTROS_DIA`
+lugares novos por dia (padrão 5, fuso de São Luís); acima disso, **429 `limite_cadastros`** com
+`Retry-After` em segundos até a meia-noite local. Reutilizar um lugar, repetir uma chave ou receber
+`CONFIRMAR_DUPLICATAS` não conta.
+O pin é validado contra as áreas de `JAMBU_AREAS_CATALOGO` (padrão `grande-sao-luis`: São Luís,
+São José de Ribamar, Paço do Lumiar e Raposa, malha IBGE de qualidade máxima; ver
+`src/main/resources/geografia/README.md`). Pin fora da área retorna **422 `fora_da_area`**
+com "O Jambu ainda está só na Grande São Luís."; vale para cadastro, revisão e recorte da
+importação. O fornecedor do mapa da futura interface continua por definir.
 
 Respostas HTTP 200:
 
@@ -101,9 +112,9 @@ Para escolher um resultado local, basta usar seu UUID na Meal.
 
 ## Perfis, revisão e histórico
 
-`GET /api/restaurantes/{id}` prioriza dados locais/Overture e estatísticas Jambu.
-Só referências Google antigas, ainda sem nome próprio, tentam detalhe externo;
-isso também consome a cota. Sem Google, o histórico e as médias continuam disponíveis.
+`GET /api/restaurantes/{id}` usa só dados locais/Overture e estatísticas Jambu e nunca
+consulta o Google, nem para referências antigas sem nome próprio (essas aparecem com
+`nome` nulo até a revisão). O link `googleMapsUri` é montado com Maps URLs, sem cobrança.
 Snapshots de Meal continuam guardando somente UUID/placeId do restaurante.
 
 Origem (LEGADO, GOOGLE_PLACES, USUARIO ou OVERTURE) é separada de situação
@@ -137,7 +148,7 @@ cliente oficial pode omitir `properties.type`. Quando informado, o tipo deve ser
 Preserva fontes, licenças, atribuição e release. Não interpreta `categories`
 do esquema antigo como se fosse o formato atual.
 
-Filtra alimentação, município, fechamento informado e confiança abaixo de 0,7.
+Filtra alimentação, área do catálogo, fechamento informado e confiança abaixo de 0,7.
 Ausência de confiança não é tratada como nota zero. Feature sem nome, ID, versão
 ou fontes válidas rejeita o lote inteiro. Um mesmo GERS mantém o UUID nas atualizações;
 release/versão anterior é ignorada e a mesma revisão é repetível. Correções locais

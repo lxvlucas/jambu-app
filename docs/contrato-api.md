@@ -50,12 +50,15 @@ campos desconhecidos são rejeitados no cadastro e na atualização.
 | `GET /api/moderacao/restaurantes` | Fila paginada de revisão, restrita aos UUIDs configurados |
 | `POST /api/moderacao/restaurantes/{id}/revisao` | Revisão/correção com versão e auditoria |
 | `POST /api/moderacao/restaurantes/importacoes/overture` | Importação administrativa de lote GeoJSON |
-| `GET /api/restaurantes/{id}` | Perfil; nota ausente quando não há Meals |
+| `GET /api/restaurantes/{id}` | Perfil só com dados do Jambu; nota e `ultimaAvaliacaoEm` ausentes quando não há Meals |
 | `GET /api/restaurantes/{id}/meals` | Meals ativas, por cursor |
 | `POST /api/meals` | 201, exige `Idempotency-Key`; header Location |
 | `GET /api/meals/{id}` | Detalhe de Meal ativa |
 | `PUT /api/meals/{id}` | Edição completa, exige `versao`; apenas autor |
 | `DELETE /api/meals/{id}` | 204, exclusão lógica; apenas autor |
+| `PUT /api/meals/{id}/curtida` | 204; curtir, idempotente (uma curtida por pessoa); Meal excluída ou inexistente: 404 |
+| `DELETE /api/meals/{id}/curtida` | 204; descurtir, idempotente |
+| `GET /api/meals/{id}/curtidas` | `{ "quantidade": 2, "curtidaPorMim": true }` |
 | `GET /api/meals/{id}/link` | `{ "url": "..." }`; própria ou de conta seguida |
 | `GET /api/timeline` | Meals próprias e de contas seguidas |
 
@@ -125,13 +128,20 @@ Quando houver seleção externa, informar placeId e token para validar/vincular;
 somente o ID validado é persistido. /selecoes mantém compatibilidade para referências
 Google já existentes; não cria mais restaurante apenas com placeId.
 
-A busca local ignora acentos e usa prefixos das palavras; até 20 sugestões.
+A busca local ignora acentos, usa prefixos das palavras, tolera erro de digitação
+(trigramas) e também acha o restaurante pelo nome de pratos já avaliados; nome exato vem
+primeiro e verificados (`ATIVO`) antes de provisórios; até 20 sugestões.
 A ampliação é limitada a uma por segundo por usuário e 100 chamadas/dia para a
 API inteira, incluindo detalhes, no fuso America/Sao_Paulo. O token de busca
 não é o Bearer. Respostas incluem Cache-Control: no-store; manter atribuições visíveis.
 
-Perfis priorizam conteúdo local/Overture. Referências Google anteriores sem nome
-próprio podem consultar detalhes; falhas preservam dados próprios e médias Jambu.
+Perfis usam só dados do Jambu e **nunca chamam o Google**, nem com a cota esgotada.
+Referências Google antigas sem nome próprio aparecem com `nome` nulo até a revisão dos
+founders. `dadosExternosDisponiveis` é sempre `false`, `atribuicoes` vem vazia e
+`atribuicaoGoogleMaps` nula (mantidos por compatibilidade). `googleMapsUri` é um link Maps
+URLs, sem chave nem cobrança: com `place_id`, `query_place_id` mais o nome próprio; sem
+`place_id`, latitude e longitude; sem nenhum dos dois, nulo. `ultimaAvaliacaoEm` é o instante
+de publicação da Meal ativa mais recente.
 Restaurantes rejeitados não aceitam nova Meal/troca, mas preservam histórico.
 GET /api/restaurantes/{id}/meals consulta somente o banco.
 
@@ -151,7 +161,7 @@ envio após falha de rede; use chave nova para uma nova publicação.
 {
   "restauranteId": "UUID_LOCAL_RETORNADO_PELA_SELECAO",
   "dishes": [
-    { "nome": "Arroz de cuxá", "nota": 4.5 },
+    { "nome": "Arroz de cuxá", "nota": 4.5, "comeriaNovamente": true, "preco": 32.50 },
     { "nome": "Peixe", "nota": 5 }
   ],
   "review": "Refeição de teste.",
@@ -161,8 +171,12 @@ envio após falha de rede; use chave nova para uma nova publicação.
 }
 ```
 
-`review`, `modalidade` e `dataRefeicao` são opcionais. Modalidades: `PRESENCIAL`,
-`DELIVERY`, `RETIRADA`. `comeriaNovamente` é obrigatório. São permitidos 1–20 Dishes
+`review`, `modalidade` e `dataRefeicao` são opcionais; `dataRefeicao` no futuro (fuso de São
+Luís) é recusada com 400. Modalidades: `PRESENCIAL`, `DELIVERY`, `RETIRADA`. Em cada Dish,
+`comeriaNovamente` e `preco` (≥ 0, até 2 casas) são opcionais. `comeriaNovamente` é uma marcação:
+`true` (marcado) ou `false` (desmarcado); ausente é gravado como `false`, e a resposta sempre traz
+`true` ou `false`. Desmarcado não quer dizer "não comeria". `preco` ausente continua `null`, nunca 0.
+O `comeriaNovamente` da Meal inteira continua aceito por compatibilidade, com a mesma regra. São permitidos 1–20 Dishes
 por padrão; nomes até 150 caracteres; notas de 0,5 a 5 em passos de 0,5.
 Review até 2.000 caracteres por padrão. Não enviar `autorId`, `notaOverall`,
 instantes de auditoria, versão ou IDs de Dishes na criação.
@@ -202,12 +216,13 @@ Erros de domínio, validação e segurança usam `application/problem+json`, com
 `status`, `detail` e `codigo`. Bean Validation inclui `campos`, sem ecoar valores
 sensíveis. Códigos relevantes: `dados_invalidos`, `conflito`, `recurso_inexistente`,
 `acesso_negado`, `credenciais_invalidas`, `sessao_invalida`,
-`autenticacao_necessaria`, `limite_autenticacao`.
+`autenticacao_necessaria`, `limite_autenticacao`, `fora_da_area`, `limite_cadastros`.
 
 400 indica entrada inválida; 401 exige login; 403 nega autoria/compartilhamento;
 404 indica ausência ou exclusão; 409 indica duplicidade/versão/conteúdo em conflito;
-429 indica excesso de tentativas de autenticação. Seleção Google inválida ou de
-tipo não permitido usa 422. Na busca, falha/cota/ausência do Google são estados
+429 indica excesso de tentativas de autenticação ou de lugares novos no dia (`limite_cadastros`),
+sempre com `Retry-After` em segundos. Seleção Google inválida ou de
+tipo não permitido usa 422; pin fora da área do catálogo também (`fora_da_area`). Na busca, falha/cota/ausência do Google são estados
 controlados de uma resposta 200; cadastro com dados próprios pode prosseguir sem
 vínculo externo. Mensagens externas,
 chave e corpo de erro Google não são retornados ao cliente.

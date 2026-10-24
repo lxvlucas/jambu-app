@@ -123,6 +123,85 @@ class JambuApiApplicationTests {
     }
 
     @Test
+    void dishGuardaComeriaDeNovoComoMarcacaoOpcionalEPrecoOpcional() {
+        // "Comeria de novo" é uma marcação: marcado (true) ou desmarcado (false). Desmarcado não quer dizer
+        // "não comeria" (a pessoa pode ter esquecido), então ausente vira false e nunca fica nulo. Preço continua opcional.
+        UUID autor = conta().id();
+        var pedido = new MealRequest(restaurante, List.of(
+                new DishRequest(null, "Tacacá", new BigDecimal("4.5"), true, new BigDecimal("32.5")),
+                new DishRequest(null, "Pato no tucupi", new BigDecimal("4"), false, null),
+                new DishRequest(null, "Suco de cupuaçu", new BigDecimal("5"), null, null)),
+                null, null, null, null, null);
+        var meal = meals.publicar(autor, "dish-completo", pedido);
+        assertThat(meal.comeriaNovamente()).isFalse();
+        assertThat(meal.dishes()).extracting(MealResponse.DishResponse::comeriaNovamente).containsExactly(true, false, false);
+        assertThat(meal.dishes()).extracting(MealResponse.DishResponse::preco)
+                .containsExactly(new BigDecimal("32.50"), null, null);
+        assertThat(consultas.consultar(meal.id())).isEqualTo(meal);
+        var linhas = jdbc.queryForList("select nome, comeria_novamente, preco from dishes where meal_id = ? order by ordem", meal.id());
+        assertThat(linhas.get(1).get("comeria_novamente")).isEqualTo(false);
+        assertThat(linhas.get(2).get("comeria_novamente")).isEqualTo(false);
+        // O banco também não aceita nulo: as duas colunas são NOT NULL com padrão false (V9).
+        assertThat(jdbc.queryForList("""
+                select table_name from information_schema.columns
+                where column_name = 'comeria_novamente' and is_nullable = 'NO' and column_default = 'false'
+                order by table_name""", String.class)).containsExactly("dishes", "meals");
+        assertThat(linhas.get(1).get("preco")).isNull();
+        // Pedido sem os campos novos continua com o mesmo JSON de antes (hash de idempotência estável).
+        assertThat(json.writeValueAsString(new DishRequest(null, "Prato", new BigDecimal("4.5"))))
+                .doesNotContain("comeriaNovamente", "preco");
+        assertThatThrownBy(() -> meals.publicar(autor, "preco-negativo", new MealRequest(restaurante,
+                List.of(new DishRequest(null, "Prato", new BigDecimal("4"), null, new BigDecimal("-1"))), null, null, null, null, null)))
+                .isInstanceOf(RegraNegocioException.class);
+    }
+
+    @Test
+    void curtirEhUmaVezPorPessoaEDescurtirRemove() throws Exception {
+        // T20: PUT e DELETE idempotentes; só contas autenticadas; Meal excluída não recebe curtida.
+        var autor = conta();
+        var leitor = conta();
+        var meal = publicar(autor.id(), "4");
+        String tokenAutor = auth.login(new LoginRequest(autor.username(), SENHA)).token();
+        String tokenLeitor = auth.login(new LoginRequest(leitor.username(), SENHA)).token();
+        String caminho = "/api/meals/" + meal.id() + "/curtida";
+        assertThat(http("PUT", caminho, null, null, null).statusCode()).isEqualTo(401);
+        assertThat(http("PUT", caminho, tokenLeitor, null, null).statusCode()).isEqualTo(204);
+        assertThat(http("PUT", caminho, tokenLeitor, null, null).statusCode()).isEqualTo(204);
+        assertThat(json.readTree(http("GET", "/api/meals/" + meal.id() + "/curtidas", tokenLeitor, null, null).body()).path("quantidade").asInt())
+                .isEqualTo(1);
+        assertThat(http("PUT", caminho, tokenAutor, null, null).statusCode()).isEqualTo(204);
+        var resumoAutor = json.readTree(http("GET", "/api/meals/" + meal.id() + "/curtidas", tokenAutor, null, null).body());
+        assertThat(resumoAutor.path("quantidade").asInt()).isEqualTo(2);
+        assertThat(resumoAutor.path("curtidaPorMim").asBoolean()).isTrue();
+        assertThat(http("DELETE", caminho, tokenLeitor, null, null).statusCode()).isEqualTo(204);
+        assertThat(http("DELETE", caminho, tokenLeitor, null, null).statusCode()).isEqualTo(204);
+        var resumoLeitor = json.readTree(http("GET", "/api/meals/" + meal.id() + "/curtidas", tokenLeitor, null, null).body());
+        assertThat(resumoLeitor.path("quantidade").asInt()).isEqualTo(1);
+        assertThat(resumoLeitor.path("curtidaPorMim").asBoolean()).isFalse();
+        assertThat(jdbc.queryForObject("select count(*) from curtidas where meal_id = ?", Integer.class, meal.id())).isEqualTo(1);
+        meals.excluir(autor.id(), meal.id());
+        assertThat(http("PUT", caminho, tokenLeitor, null, null).statusCode()).isEqualTo(404);
+        assertThat(http("PUT", "/api/meals/" + UUID.randomUUID() + "/curtida", tokenLeitor, null, null).statusCode()).isEqualTo(404);
+    }
+
+    @Test
+    void dataDaRefeicaoNoFuturoERecusadaNaPublicacaoENaEdicao() {
+        // AGORA = 19/10/2026 12:00 em São Luís.
+        UUID autor = conta().id();
+        var futuro = new MealRequest(restaurante, List.of(new DishRequest(null, "Prato", new BigDecimal("4"))),
+                null, true, null, java.time.LocalDate.of(2026, 10, 20), null);
+        assertThatThrownBy(() -> meals.publicar(autor, "futuro", futuro))
+                .isInstanceOfSatisfying(RegraNegocioException.class, ex -> assertThat(ex.getMessage()).contains("futuro"));
+        var hoje = meals.publicar(autor, "hoje", new MealRequest(restaurante, List.of(new DishRequest(null, "Prato", new BigDecimal("4"))),
+                null, true, null, java.time.LocalDate.of(2026, 10, 19), null));
+        assertThat(hoje.dataRefeicao()).isEqualTo(java.time.LocalDate.of(2026, 10, 19));
+        assertThatThrownBy(() -> meals.editar(autor, hoje.id(), new MealRequest(restaurante,
+                List.of(new DishRequest(hoje.dishes().getFirst().id(), "Prato", new BigDecimal("4"))), null, true, null,
+                java.time.LocalDate.of(2026, 10, 25), hoje.versao())))
+                .isInstanceOf(RegraNegocioException.class);
+    }
+
+    @Test
     void mediasTemPesoIgualPorMealETrocaDeRestauranteEExclusaoRefletemNaConsulta() {
         var autor = conta();
         var primeira = publicar(autor.id(), "5");
@@ -345,6 +424,43 @@ class JambuApiApplicationTests {
     }
 
     @Test
+    void perfilNuncaConsultaGoogleEMontaLinkDoMapsSemCobranca() {
+        // Referência antiga só com place_id: o perfil não busca nome nem endereço no Google.
+        int antes = places.chamadas.get();
+        var semNome = restauranteService.consultar(restaurante);
+        assertThat(places.chamadas.get()).isEqualTo(antes);
+        assertThat(semNome.nome()).isNull();
+        assertThat(semNome.dadosExternosDisponiveis()).isFalse();
+        assertThat(semNome.atribuicoes()).isEmpty();
+        assertThat(semNome.atribuicaoGoogleMaps()).isNull();
+        assertThat(semNome.googleMapsUri()).hasToString("https://www.google.com/maps/search/?api=1&query=restaurante&query_place_id="
+                + semNome.googlePlaceId());
+
+        jdbc.update("update restaurantes set nome = 'Coisas do Pará', nome_normalizado = 'coisas do para' where id = ?", restaurante);
+        assertThat(restauranteService.consultar(restaurante).googleMapsUri()).hasToString(
+                "https://www.google.com/maps/search/?api=1&query=Coisas%20do%20Par%C3%A1&query_place_id=" + semNome.googlePlaceId());
+
+        places.falhar = true;
+        var proprio = cadastros.cadastrar(conta().id(), "maps-" + UUID.randomUUID(), new CadastroRestauranteRequest(
+                "Cantinho " + UUID.randomUUID(), -2.5048, -44.2462, CategoriaRestaurante.RESTAURANTE, null, null, Set.of()));
+        var perfilProprio = restauranteService.consultar(proprio.restaurante().id());
+        assertThat(perfilProprio.googleMapsUri()).hasToString("https://www.google.com/maps/search/?api=1&query=-2.5048%2C-44.2462");
+        assertThat(places.chamadas.get()).isEqualTo(antes);
+    }
+
+    @Test
+    void perfilInformaDataDaUltimaAvaliacaoAtiva() {
+        assertThat(restauranteService.consultar(restaurante).ultimaAvaliacaoEm()).isNull();
+        UUID autor = conta().id();
+        var primeira = publicar(autor, "4");
+        clock.agora = AGORA.plusSeconds(3600);
+        var segunda = publicar(autor, "5");
+        assertThat(restauranteService.consultar(restaurante).ultimaAvaliacaoEm()).isEqualTo(segunda.publicadaEm());
+        meals.excluir(autor, segunda.id());
+        assertThat(restauranteService.consultar(restaurante).ultimaAvaliacaoEm()).isEqualTo(primeira.publicadaEm());
+    }
+
+    @Test
     void tipoInvalidoEFalhaExternaNaoCriamReferenciaNemImpedemDadosLocais() {
         long antes = restaurantes.count();
         var autorCadastro = conta().id();
@@ -453,8 +569,11 @@ class JambuApiApplicationTests {
         var selecionado = http("POST", "/api/restaurantes/selecoes", token, corpo, null);
         assertThat(selecionado.statusCode()).isEqualTo(200);
         String id = json.readTree(selecionado.body()).path("id").asString();
+        int antesDoPerfil = places.chamadas.get();
         assertThat(http("GET", "/api/restaurantes/" + id, token, null, null).statusCode()).isEqualTo(200);
-        assertThat(places.ultimoToken).isNull();
+        // T01: o perfil não consulta o Google, nem para referência antiga sem nome próprio.
+        assertThat(places.chamadas.get()).isEqualTo(antesDoPerfil);
+        assertThat(places.ultimoToken).isEqualTo(sessaoPlaces);
         places.falhar = true;
         assertThat(http("POST", "/api/restaurantes/selecoes", token, corpo, null).statusCode()).isEqualTo(200);
         int chamadas = places.chamadas.get();

@@ -28,8 +28,9 @@ class MigracaoSessoesTest {
                 ('50000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',repeat('a',64),'2026-10-23T12:00:00Z','2026-10-24T12:00:00Z',null),
                 ('50000000-0000-0000-0000-000000000002','20000000-0000-0000-0000-000000000001',repeat('b',64),'2026-10-23T12:00:00Z','2026-10-24T12:00:00Z','2026-10-23T13:00:00Z');
                 """);
+            // Alvo fixo na V5: o teste cobre a passagem V4 → V5 e não deve quebrar a cada migração nova.
             var flyway = Flyway.configure().dataSource(url, usuario, senha).schemas(schema).defaultSchema(schema)
-                    .locations("classpath:db/migration").load();
+                    .locations("classpath:db/migration").target("5").load();
             assertThat(flyway.migrate().migrationsExecuted).isEqualTo(1);
             flyway.validate();
             try (var resultado = sql.executeQuery(consultaChecksums)) {

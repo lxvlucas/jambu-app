@@ -101,6 +101,36 @@ class CatalogoRestaurantesTest {
         assertThat(places.chamadas.get()).isZero();
     }
 
+    @Test void buscaToleraErroDeDigitacaoSemChamarGoogle() {
+        // T06: trigramas (pg_trgm) perdoam "burguer" no lugar de "burger".
+        String sufixo = UUID.randomUUID().toString().substring(0, 8);
+        var criado = cadastros.cadastrar(autor, UUID.randomUUID().toString(), manual("Burger Night " + sufixo, -2.531, -44.301, Set.of()));
+        var busca = service.buscar("burguer nigth " + sufixo, null, false, autor);
+        assertThat(busca.locais()).extracting(RestauranteResumo::id).contains(criado.restaurante().id());
+        assertThat(busca.estadoExterno()).isEqualTo("NAO_SOLICITADO");
+        assertThat(places.chamadas.get()).isZero();
+    }
+
+    @Test void buscaAchaRestaurantePeloNomeDePratoJaAvaliado() {
+        String sufixo = UUID.randomUUID().toString().substring(0, 8);
+        var criado = cadastros.cadastrar(autor, UUID.randomUUID().toString(), manual("Casa Paraense " + sufixo, -2.532, -44.302, Set.of()));
+        meals.publicar(autor, UUID.randomUUID().toString(), new MealRequest(criado.restaurante().id(),
+                List.of(new DishRequest(null, "Tacacá " + sufixo, new BigDecimal("4.5"))), null, true, null, null, null));
+        var busca = service.buscar("tacaca " + sufixo, null, false, autor);
+        assertThat(busca.locais()).extracting(RestauranteResumo::id).containsExactly(criado.restaurante().id());
+        assertThat(places.chamadas.get()).isZero();
+    }
+
+    @Test void provisoriosAparecemDepoisDosVerificados() {
+        String sufixo = UUID.randomUUID().toString().substring(0, 8);
+        var provisorio = cadastros.cadastrar(autor, UUID.randomUUID().toString(), manual("Ponto " + sufixo + " Centro", -2.533, -44.303, Set.of()));
+        var verificado = cadastros.cadastrar(autor, UUID.randomUUID().toString(), manual("Ponto " + sufixo + " Praia", -2.50, -44.27, Set.of()));
+        jdbc.update("update restaurantes set situacao = 'ATIVO' where id = ?", verificado.restaurante().id());
+        var busca = service.buscar("ponto " + sufixo, null, false, autor);
+        assertThat(busca.locais()).extracting(RestauranteResumo::id)
+                .containsExactly(verificado.restaurante().id(), provisorio.restaurante().id());
+    }
+
     @Test void duplicataExigeConfirmacaoEOutraUnidadePodeSerCriada() {
         String nome = "Sabor " + UUID.randomUUID();
         var primeiro = cadastrar(nome);
@@ -263,6 +293,25 @@ class CatalogoRestaurantesTest {
                 .isInstanceOf(RegraNegocioException.class);
     }
 
+    @Test void ilhaInteiraAceitaOsQuatroMunicipiosERecusaForaComCodigoProprio() {
+        // T03: São Luís, São José de Ribamar, Paço do Lumiar e Raposa (malha IBGE máxima).
+        assertThat(area.contem(-2.49908, -44.24030)).as("Coisas do Pará, São Luís").isTrue();
+        assertThat(area.contem(-2.5617, -44.0542)).as("centro de São José de Ribamar").isTrue();
+        assertThat(area.contem(-2.5320, -44.1078)).as("centro de Paço do Lumiar").isTrue();
+        assertThat(area.contem(-2.4254, -44.0973)).as("centro de Raposa").isTrue();
+        assertThat(area.contem(-2.4700, -44.2050)).as("Araçagi").isTrue();
+        assertThat(area.contem(-3.7319, -38.5267)).as("Fortaleza").isFalse();
+        assertThat(area.nome()).isEqualTo("Grande São Luís");
+        assertThatThrownBy(() -> cadastros.cadastrar(autor, "fortaleza", manual("Fora " + autor, -3.7319, -38.5267, Set.of())))
+                .isInstanceOfSatisfying(RegraNegocioException.class, ex -> {
+                    assertThat(ex.getCodigo()).isEqualTo("fora_da_area");
+                    assertThat(ex.getStatus().value()).isEqualTo(422);
+                    assertThat(ex.getMessage()).isEqualTo("O Jambu ainda está só na Grande São Luís.");
+                });
+        assertThat(cadastros.cadastrar(autor, "ribamar", manual("Ribamar " + autor, -2.5617, -44.0542, Set.of())).situacao())
+                .isEqualTo("CRIADO");
+    }
+
     @Test void nomeDeUsuarioNaoConcedeNemRemovePermissaoDeRevisor() {
         jdbc.update("update usuarios set username = ? where id = ?", "rev_" + UUID.randomUUID().toString().substring(0, 8), REVISOR);
         jdbc.update("update usuarios set username = 'revisor_catalogo_fixture' where id = ?", autor);
@@ -270,6 +319,50 @@ class CatalogoRestaurantesTest {
                 .isInstanceOf(RegraNegocioException.class);
         assertThat(revisao.listar(REVISOR, SituacaoRestaurante.PROVISORIO, 0, 20)).isNotNull();
         jdbc.update("update usuarios set username = ? where id = ?", "comum_" + UUID.randomUUID().toString().substring(0, 8), autor);
+    }
+
+    @Test void cadastroDeLugarNovoLimitadoACincoPorDiaCom429() throws Exception {
+        // T09: até 5 lugares novos por pessoa por dia (fuso de São Luís); o 6º recebe 429 com Retry-After.
+        String username = jdbc.queryForObject("select username from usuarios where id = ?", String.class, autor);
+        String token = auth.login(new LoginRequest(username, SENHA)).token();
+        for (int i = 0; i < 5; i++)
+            assertThat(cadastros.cadastrar(autor, "lim-" + i, manual(UUID.randomUUID().toString(), -2.53, -44.30, Set.of())).situacao())
+                    .isEqualTo("CRIADO");
+        assertThatThrownBy(() -> cadastros.cadastrar(autor, "lim-6", manual(UUID.randomUUID().toString(), -2.53, -44.30, Set.of())))
+                .isInstanceOfSatisfying(RegraNegocioException.class, ex -> {
+                    assertThat(ex.getStatus().value()).isEqualTo(429);
+                    assertThat(ex.getCodigo()).isEqualTo("limite_cadastros");
+                });
+        var http = http("POST", "/api/restaurantes/cadastros", token,
+                json.writeValueAsString(manual(UUID.randomUUID().toString(), -2.53, -44.30, Set.of())), "lim-http");
+        assertThat(http.statusCode()).isEqualTo(429);
+        // 15:00Z = 12:00 em São Luís; faltam 12 h para a meia-noite local.
+        assertThat(http.headers().firstValue("Retry-After")).hasValue("43200");
+        assertThat(http.body()).contains("limite_cadastros");
+        clock.agora = clock.agora.plusSeconds(43200);
+        assertThat(cadastros.cadastrar(autor, "lim-amanha", manual(UUID.randomUUID().toString(), -2.53, -44.30, Set.of())).situacao())
+                .isEqualTo("CRIADO");
+    }
+
+    @Test void categoriasSaoSoAsSeisDoEnum() throws Exception {
+        // O enum é a lista de categorias: fora dele, a API, o banco e a importação recusam.
+        assertThat(CategoriaRestaurante.values()).extracting(Enum::name)
+                .containsExactly("RESTAURANTE", "CAFE", "PADARIA", "BAR", "LANCHONETE", "SORVETERIA");
+        String username = jdbc.queryForObject("select username from usuarios where id = ?", String.class, autor);
+        String token = auth.login(new LoginRequest(username, SENHA)).token();
+        var corpo = (tools.jackson.databind.node.ObjectNode) json.valueToTree(manual("Praça " + UUID.randomUUID(), -2.53, -44.30, Set.of()));
+        corpo.put("categoria", "PRACA_ALIMENTACAO");
+        var recusado = http("POST", "/api/restaurantes/cadastros", token, json.writeValueAsString(corpo), "praca-http");
+        assertThat(recusado.statusCode()).isEqualTo(400);
+        assertThat(recusado.body()).contains("requisicao_invalida");
+        var criado = cadastros.cadastrar(autor, "categoria-banco", manual("Lugar " + UUID.randomUUID(), -2.53, -44.30, Set.of()));
+        assertThatThrownBy(() -> jdbc.update("update restaurantes set categoria = 'PRACA_ALIMENTACAO' where id = ?", criado.restaurante().id()))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+        var praca = (tools.jackson.databind.node.ObjectNode) feature(UUID.randomUUID().toString(), "Praça " + UUID.randomUUID(), 1);
+        ((tools.jackson.databind.node.ObjectNode) praca.path("properties")).put("basic_category", "food_court");
+        ((tools.jackson.databind.node.ObjectNode) praca.path("properties")).set("taxonomy",
+                json.valueToTree(Map.of("primary", "food_court", "hierarchy", List.of("food_and_drink", "food_court"))));
+        assertThat(importacao.importar(REVISOR, lote("2026-10-21.0", praca)).itens().getFirst().resultado()).isEqualTo("IGNORADO_CATEGORIA");
     }
 
     @Test void contratoHttpProtegeCadastroEAdministracao() throws Exception {
