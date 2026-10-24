@@ -457,6 +457,29 @@ class CatalogoRestaurantesTest {
                 .isEqualTo("recurso_inexistente");
     }
 
+    @Test void correcaoSugeridaEntraNaFilaDosFoundersESaiNaRevisao() throws Exception {
+        // T08 (RN-58): "Corrigir" vai para a revisão dos founders; a revisão do lugar resolve a correção.
+        var lugar = cadastrar("Lugar com nome errado " + UUID.randomUUID()).restaurante().id();
+        UUID segunda = conta();
+        meals.publicar(segunda, UUID.randomUUID().toString(), mealEm(lugar));
+        http("POST", "/api/restaurantes/" + lugar + "/retornos", token(segunda),
+                "{\"tipo\":\"CORRECAO\",\"nomeSugerido\":\"Nome certo\",\"observacao\":\"Na placa está outro nome\"}", null);
+        assertThat(http("GET", "/api/moderacao/restaurantes/retornos", token(segunda), null, null).statusCode()).isEqualTo(403);
+        var fila = revisao.correcoesPendentes(REVISOR, 0, 50);
+        var item = fila.itens().stream().filter(c -> c.restauranteId().equals(lugar)).findFirst().orElseThrow();
+        assertThat(item.nomeSugerido()).isEqualTo("Nome certo");
+        assertThat(item.observacao()).isEqualTo("Na placa está outro nome");
+        assertThat(item.usuarioId()).isEqualTo(segunda);
+        assertThat(item.nomeAtual()).startsWith("Lugar com nome errado");
+        var r = restaurantes.findById(lugar).orElseThrow();
+        assertThat(item.versaoRestaurante()).isEqualTo(r.getVersao());
+        revisao.revisar(REVISOR, lugar, new RevisaoRestauranteRequest(r.getVersao(), SituacaoRestaurante.ATIVO, "Nome conferido",
+                new RevisaoRestauranteRequest.Correcao("Nome certo", -2.53, -44.30, CategoriaRestaurante.RESTAURANTE)));
+        assertThat(revisao.correcoesPendentes(REVISOR, 0, 50).itens()).noneMatch(c -> c.restauranteId().equals(lugar));
+        assertThat(jdbc.queryForObject("select resolvido_em is not null from retornos_restaurantes where restaurante_id = ?",
+                Boolean.class, lugar)).isTrue();
+    }
+
     @Test void contratoHttpProtegeCadastroEAdministracao() throws Exception {
         String username = jdbc.queryForObject("select username from usuarios where id = ?", String.class, autor);
         String token = auth.login(new LoginRequest(username, SENHA)).token();

@@ -48,7 +48,8 @@ campos desconhecidos são rejeitados no cadastro e na atualização.
 | `POST /api/restaurantes/cadastros` | Cadastro próprio idempotente, confirmação de possíveis duplicatas e placeId opcional |
 | `POST /api/restaurantes/selecoes` | Reutiliza referência Google existente; novo ID retorna 422 cadastro_necessario |
 | `GET /api/moderacao/restaurantes` | Fila paginada de revisão, restrita aos UUIDs configurados |
-| `POST /api/moderacao/restaurantes/{id}/revisao` | Revisão/correção com versão e auditoria |
+| `GET /api/moderacao/restaurantes/retornos` | Fila paginada das correções sugeridas pela 2ª conta, só founders |
+| `POST /api/moderacao/restaurantes/{id}/revisao` | Revisão/correção com versão e auditoria; resolve as correções sugeridas do lugar |
 | `POST /api/moderacao/restaurantes/importacoes/overture` | Importação administrativa de lote GeoJSON |
 | `GET /api/restaurantes/{id}` | Perfil só com dados do Jambu; nota e `ultimaAvaliacaoEm` ausentes quando não há Meals |
 | `GET /api/restaurantes/{id}/meals` | Meals ativas, por cursor |
@@ -162,6 +163,12 @@ verificado dá 409 `conflito`. Cada pessoa responde uma vez por lugar: repetir a
 de publicar: `{ "podeConfirmar": true }` só quando o lugar é provisório, a pessoa não o cadastrou, tem
 Meal ativa nele e ainda não respondeu. Fica fora da resposta da Meal porque muda com o tempo e por
 pessoa, e a resposta da publicação é guardada para a idempotência. Lugar inexistente ou rejeitado: 404.
+
+Founders veem as correções em `GET /api/moderacao/restaurantes/retornos?pagina=0&limite=20`
+(`{ "itens": [{ "id", "restauranteId", "nomeAtual", "versaoRestaurante", "nomeSugerido", "observacao",
+"usuarioId", "criadoEm" }], "pagina", "total" }`, das mais antigas para as mais novas; 403 para quem não
+é founder). A revisão existente do lugar (`POST /api/moderacao/restaurantes/{id}/revisao`, com
+`versaoRestaurante`) resolve as correções dele, que saem da fila.
 
 Contrato completo, revisão por UUID, importação e exemplos:
 [catálogo de restaurantes](catalogo-restaurantes.md).

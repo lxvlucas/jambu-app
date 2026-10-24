@@ -20,6 +20,13 @@ public class RevisaoRestauranteController {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
                 .body(service.listar(principal.usuarioId(), situacao, pagina, limite));
     }
+    @GetMapping("/retornos")
+    public ResponseEntity<PaginaResponse<RevisaoRestauranteService.CorrecaoPendenteResponse>> correcoes(
+            @AuthenticationPrincipal UsuarioAutenticado principal,
+            @RequestParam(defaultValue = "0") int pagina, @RequestParam(defaultValue = "20") int limite) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(service.correcoesPendentes(principal.usuarioId(), pagina, limite));
+    }
     @PostMapping("/{id}/revisao")
     public ResponseEntity<RestauranteResumo> revisar(@AuthenticationPrincipal UsuarioAutenticado principal,
             @PathVariable UUID id, @Valid @RequestBody RevisaoRestauranteRequest request) {
