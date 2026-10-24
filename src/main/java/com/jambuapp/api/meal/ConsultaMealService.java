@@ -16,10 +16,13 @@ public class ConsultaMealService {
     private final MealRepository meals;
     private final FotoDishRepository fotosDish;
     private final CurtidaService curtidas;
-    public ConsultaMealService(MealRepository meals, FotoDishRepository fotosDish, CurtidaService curtidas) {
+    private final ComentarioService comentarios;
+    public ConsultaMealService(MealRepository meals, FotoDishRepository fotosDish, CurtidaService curtidas,
+            ComentarioService comentarios) {
         this.meals = meals;
         this.fotosDish = fotosDish;
         this.curtidas = curtidas;
+        this.comentarios = comentarios;
     }
     public MealResponse consultar(UUID id) {
         var meal = meals.findByIdAndExcluidaEmIsNull(id).orElseThrow(RegraNegocioException::inexistente);
@@ -30,21 +33,23 @@ public class ConsultaMealService {
                 posicao.instante(), posicao.id(), pagina), ids -> (meal, resposta) -> resposta);
     }
     /**
-     * Feed (T19): a Meal, o nome do restaurante (do catálogo do Jambu, nunca do Google) e as curtidas.
-     * As curtidas ficam no item do feed, e não na MealResponse, porque a resposta da publicação é guardada
-     * para a idempotência e o total muda com o tempo.
+     * Feed (T19): a Meal, o nome do restaurante (do catálogo do Jambu, nunca do Google), as curtidas e o total
+     * de comentários (T21). Os contadores ficam no item do feed, e não na MealResponse, porque a resposta da
+     * publicação é guardada para a idempotência e os totais mudam com o tempo.
      */
     public PaginaCursor<ItemFeed> feed(UUID usuario, AbaFeed aba, String cursor, int limite) {
         return pagina(cursor, limite, (posicao, pagina) -> meals.buscarIdsFeed(usuario, aba == AbaFeed.SEGUINDO,
                 posicao.instante(), posicao.id(), pagina), ids -> {
                     var resumos = curtidas.resumos(usuario, ids);
+                    var totais = comentarios.totais(ids);
                     return (meal, resposta) -> {
                         var c = resumos.getOrDefault(meal.getId(), new CurtidaService.ResumoCurtidas(0, false));
-                        return new ItemFeed(resposta, meal.getRestaurante().getNome(), c.quantidade(), c.curtidaPorMim());
+                        return new ItemFeed(resposta, meal.getRestaurante().getNome(), c.quantidade(), c.curtidaPorMim(),
+                                totais.getOrDefault(meal.getId(), 0L));
                     };
                 });
     }
-    public record ItemFeed(MealResponse meal, String nomeRestaurante, long curtidas, boolean curtidaPorMim) {}
+    public record ItemFeed(MealResponse meal, String nomeRestaurante, long curtidas, boolean curtidaPorMim, long comentarios) {}
     private <T> PaginaCursor<T> pagina(String cursor, int limite,
             java.util.function.BiFunction<CursorMeal, PageRequest, List<UUID>> buscar,
             Function<List<UUID>, java.util.function.BiFunction<Meal, MealResponse, T>> montador) {

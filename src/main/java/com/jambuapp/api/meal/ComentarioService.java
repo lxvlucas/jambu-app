@@ -68,6 +68,15 @@ public class ComentarioService {
         var ultimo = pagina.isEmpty() ? null : pagina.getLast();
         return new PaginaCursor<>(pagina, mais ? new CursorMeal(ultimo.criadoEm(), ultimo.id()).codificar() : null);
     }
+    /** Total de comentários ativos de várias Meals numa consulta só, para o feed; sem comentário, fora do mapa. */
+    @Transactional(readOnly = true)
+    public java.util.Map<UUID, Long> totais(java.util.Collection<UUID> mealIds) {
+        if (mealIds.isEmpty()) return java.util.Map.of();
+        var mapa = new java.util.HashMap<UUID, Long>();
+        jdbc.query("select meal_id, count(*) from comentarios where meal_id = any(?) and excluido_em is null group by meal_id",
+                rs -> { mapa.put(rs.getObject(1, UUID.class), rs.getLong(2)); }, (Object) mealIds.toArray(UUID[]::new));
+        return mapa;
+    }
     private ComentarioResponse buscar(UUID id) {
         return jdbc.queryForObject(SELECT + " where c.id = ?", (rs, i) -> linha(rs), id);
     }
