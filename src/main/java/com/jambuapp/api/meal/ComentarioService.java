@@ -40,6 +40,19 @@ public class ComentarioService {
         if (!hash.equals(gravado.hash())) throw RegraNegocioException.conflito("Chave de idempotência já usada com outro conteúdo.");
         return buscar(gravado.id());
     }
+    /**
+     * Só o autor do comentário ou o dono do post excluem (RN-34). Repetir a exclusão devolve sucesso;
+     * para outra conta, continua 403, mesmo depois de excluído.
+     */
+    public void excluir(UUID usuarioId, UUID mealId, UUID comentarioId) {
+        var meal = meals.findByIdAndExcluidaEmIsNull(mealId).orElseThrow(RegraNegocioException::inexistente);
+        var autores = jdbc.query("select autor_id from comentarios where id = ? and meal_id = ?",
+                (rs, i) -> rs.getObject(1, UUID.class), comentarioId, mealId);
+        if (autores.isEmpty()) throw RegraNegocioException.inexistente();
+        if (!usuarioId.equals(autores.getFirst()) && !usuarioId.equals(meal.getAutor().getId())) throw RegraNegocioException.proibido();
+        jdbc.update("update comentarios set excluido_em = ? where id = ? and excluido_em is null",
+                Timestamp.from(clock.instant()), comentarioId);
+    }
     @Transactional(readOnly = true)
     public PaginaCursor<ComentarioResponse> listar(UUID mealId, String cursor, int limite) {
         Paginacao.limite(limite);

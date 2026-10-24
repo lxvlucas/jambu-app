@@ -19,6 +19,12 @@ public class ComentarioController {
             @Valid @RequestBody ComentarioService.ComentarioRequest request) {
         return comentarios.comentar(principal.usuarioId(), id, chave, request);
     }
+    @DeleteMapping("/{comentarioId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void excluir(@AuthenticationPrincipal UsuarioAutenticado principal, @PathVariable UUID id,
+            @PathVariable UUID comentarioId) {
+        comentarios.excluir(principal.usuarioId(), id, comentarioId);
+    }
     @GetMapping
     public PaginaCursor<ComentarioService.ComentarioResponse> listar(@PathVariable UUID id,
             @RequestParam(required = false) String cursor, @RequestParam(defaultValue = "20") int limite) {
