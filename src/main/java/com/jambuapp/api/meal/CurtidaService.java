@@ -34,6 +34,18 @@ public class CurtidaService {
                 Boolean.class, mealId, usuarioId);
         return new ResumoCurtidas(quantidade == null ? 0 : quantidade, Boolean.TRUE.equals(minha));
     }
+    /** Resumo de várias Meals numa consulta só, para o feed (T19); Meal sem curtida não aparece no mapa. */
+    @Transactional(readOnly = true)
+    public java.util.Map<UUID, ResumoCurtidas> resumos(UUID usuarioId, java.util.Collection<UUID> mealIds) {
+        if (mealIds.isEmpty()) return java.util.Map.of();
+        var mapa = new java.util.HashMap<UUID, ResumoCurtidas>();
+        jdbc.query("""
+                select meal_id, count(*), bool_or(usuario_id = ?) from curtidas
+                where meal_id = any(?) group by meal_id
+                """, rs -> { mapa.put(rs.getObject(1, UUID.class), new ResumoCurtidas(rs.getLong(2), rs.getBoolean(3))); },
+                usuarioId, mealIds.toArray(UUID[]::new));
+        return mapa;
+    }
     private void exigirAtiva(UUID mealId) {
         if (meals.findByIdAndExcluidaEmIsNull(mealId).isEmpty()) throw RegraNegocioException.inexistente();
     }

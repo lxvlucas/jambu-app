@@ -223,6 +223,31 @@ class JambuApiApplicationTests {
     }
 
     @Test
+    void feedMostraTotalDeCurtidasECurtidaPorMim() throws Exception {
+        // T19: o card do feed traz o total de curtidas e se a pessoa que vê já curtiu (RN-33: tocar de novo descurte).
+        var leitor = conta();
+        var autor = conta();
+        var fa = conta();
+        var post = publicar(autor.id(), "4");
+        var semCurtidas = publicar(autor.id(), "3");
+        String tokenLeitor = auth.login(new LoginRequest(leitor.username(), SENHA)).token();
+        String tokenFa = auth.login(new LoginRequest(fa.username(), SENHA)).token();
+        http("PUT", "/api/meals/" + post.id() + "/curtida", tokenLeitor, null, null);
+        http("PUT", "/api/meals/" + post.id() + "/curtida", tokenFa, null, null);
+        var item = itemDoFeed(tokenLeitor, post.id());
+        assertThat(item.path("curtidas").asLong()).isEqualTo(2);
+        assertThat(item.path("curtidaPorMim").asBoolean()).isTrue();
+        var vazio = itemDoFeed(tokenLeitor, semCurtidas.id());
+        assertThat(vazio.path("curtidas").asLong()).isZero();
+        assertThat(vazio.path("curtidaPorMim").isBoolean()).isTrue();
+        assertThat(vazio.path("curtidaPorMim").asBoolean()).isFalse();
+        http("DELETE", "/api/meals/" + post.id() + "/curtida", tokenLeitor, null, null);
+        var depois = itemDoFeed(tokenLeitor, post.id());
+        assertThat(depois.path("curtidas").asLong()).isEqualTo(1);
+        assertThat(depois.path("curtidaPorMim").asBoolean()).isFalse();
+    }
+
+    @Test
     void dataDaRefeicaoNoFuturoERecusadaNaPublicacaoENaEdicao() {
         // AGORA = 19/10/2026 12:00 em São Luís.
         UUID autor = conta().id();
@@ -884,6 +909,15 @@ class JambuApiApplicationTests {
         }
     }
 
+    private tools.jackson.databind.JsonNode itemDoFeed(String token, UUID mealId) throws Exception {
+        String cursor = null;
+        do {
+            var corpo = json.readTree(http("GET", "/api/feed?aba=PARA_VOCE&limite=50" + (cursor == null ? "" : "&cursor=" + cursor), token, null, null).body());
+            for (var item : corpo.path("itens")) if (item.path("meal").path("id").asString().equals(mealId.toString())) return item;
+            cursor = corpo.path("proximoCursor").isNull() ? null : corpo.path("proximoCursor").asString();
+        } while (cursor != null);
+        throw new AssertionError("Meal fora do feed: " + mealId);
+    }
     /** Percorre todas as páginas do feed pelo cursor e devolve os IDs das Meals, na ordem. */
     private List<UUID> feedCompleto(String token, String aba) throws Exception {
         List<UUID> ids = new ArrayList<>();
