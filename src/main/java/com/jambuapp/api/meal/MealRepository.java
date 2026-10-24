@@ -27,6 +27,17 @@ public interface MealRepository extends JpaRepository<Meal, UUID> {
             """, nativeQuery = true)
     List<UUID> buscarIds(UUID autor, UUID restaurante, UUID timeline, Instant instante, UUID ultimoId, Pageable pagina);
 
+    // Feed (T19): nunca os próprios posts (RN-32); na aba SEGUINDO, só de quem a pessoa segue.
+    @Query(value = """
+            select m.id from meals m
+            where m.excluida_em is null and m.autor_id <> :usuario
+              and (not :seguindo or exists
+                  (select 1 from seguimentos s where s.seguidor_id = :usuario and s.seguido_id = m.autor_id))
+              and (cast(:instante as timestamptz) is null or (m.publicada_em, m.id) < (:instante, :ultimoId))
+            order by m.publicada_em desc, m.id desc
+            """, nativeQuery = true)
+    List<UUID> buscarIdsFeed(UUID usuario, boolean seguindo, Instant instante, UUID ultimoId, Pageable pagina);
+
     @EntityGraph(attributePaths = {"autor", "restaurante", "dishes"})
     @Query("select m from Meal m where m.id in :ids and m.excluidaEm is null")
     List<Meal> buscarCompletas(Collection<UUID> ids);

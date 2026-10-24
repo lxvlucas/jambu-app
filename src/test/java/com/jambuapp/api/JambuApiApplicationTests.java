@@ -185,6 +185,44 @@ class JambuApiApplicationTests {
     }
 
     @Test
+    void feedTemAbasParaVoceESeguindoSemOsPropriosPosts() throws Exception {
+        // T19 (RN-30 a RN-32, AC10, F1, F2): "Para você" mostra todos os outros; "Seguindo", só quem eu sigo;
+        // nenhuma aba mostra os meus posts.
+        var eu = conta();
+        var seguido = conta();
+        var outro = conta();
+        var semSeguir = conta();
+        seguimentos.seguir(eu.id(), seguido.id());
+        var meu = publicar(eu.id(), "4");
+        String nomeLugar = "Lugar do feed " + UUID.randomUUID();
+        UUID lugar = cadastros.cadastrar(seguido.id(), UUID.randomUUID().toString(), new CadastroRestauranteRequest(nomeLugar,
+                -2.53, -44.30, CategoriaRestaurante.RESTAURANTE, null, null, Set.of())).restaurante().id();
+        var doSeguido = meals.publicar(seguido.id(), UUID.randomUUID().toString(), new MealRequest(lugar,
+                List.of(new DishRequest(null, "Prato do feed", new BigDecimal("4.5"))), null, null, null, null, null));
+        var doOutro = publicar(outro.id(), "3");
+        String token = auth.login(new LoginRequest(eu.username(), SENHA)).token();
+        assertThat(http("GET", "/api/feed?aba=PARA_VOCE", null, null, null).statusCode()).isEqualTo(401);
+        assertThat(http("GET", "/api/feed", token, null, null).statusCode()).isEqualTo(400);
+        assertThat(http("GET", "/api/feed?aba=TODOS", token, null, null).statusCode()).isEqualTo(400);
+        assertThat(http("GET", "/api/feed?aba=PARA_VOCE&limite=999", token, null, null).statusCode()).isEqualTo(400);
+        var paraVoce = feedCompleto(token, "PARA_VOCE");
+        assertThat(paraVoce).contains(doSeguido.id(), doOutro.id()).doesNotContain(meu.id());
+        assertThat(paraVoce).doesNotHaveDuplicates();
+        assertThat(feedCompleto(token, "SEGUINDO")).containsExactly(doSeguido.id());
+        // Quem não segue ninguém recebe a aba vazia; o app mostra "Siga pessoas para ver os posts delas aqui".
+        String tokenSemSeguir = auth.login(new LoginRequest(semSeguir.username(), SENHA)).token();
+        assertThat(feedCompleto(tokenSemSeguir, "SEGUINDO")).isEmpty();
+        // O card traz a Meal e o nome do restaurante, que vem do catálogo do Jambu.
+        var item = json.readTree(http("GET", "/api/feed?aba=SEGUINDO", token, null, null).body()).path("itens").get(0);
+        assertThat(item.path("meal").path("id").asString()).isEqualTo(doSeguido.id().toString());
+        assertThat(item.path("nomeRestaurante").asString()).isEqualTo(nomeLugar);
+        // Post excluído sai do feed.
+        meals.excluir(seguido.id(), doSeguido.id());
+        assertThat(feedCompleto(token, "SEGUINDO")).isEmpty();
+        assertThat(feedCompleto(token, "PARA_VOCE")).doesNotContain(doSeguido.id());
+    }
+
+    @Test
     void dataDaRefeicaoNoFuturoERecusadaNaPublicacaoENaEdicao() {
         // AGORA = 19/10/2026 12:00 em São Luís.
         UUID autor = conta().id();
@@ -846,6 +884,19 @@ class JambuApiApplicationTests {
         }
     }
 
+    /** Percorre todas as páginas do feed pelo cursor e devolve os IDs das Meals, na ordem. */
+    private List<UUID> feedCompleto(String token, String aba) throws Exception {
+        List<UUID> ids = new ArrayList<>();
+        String cursor = null;
+        do {
+            var resposta = http("GET", "/api/feed?aba=" + aba + "&limite=50" + (cursor == null ? "" : "&cursor=" + cursor), token, null, null);
+            assertThat(resposta.statusCode()).isEqualTo(200);
+            var corpo = json.readTree(resposta.body());
+            for (var item : corpo.path("itens")) ids.add(UUID.fromString(item.path("meal").path("id").asString()));
+            cursor = corpo.path("proximoCursor").isNull() ? null : corpo.path("proximoCursor").asString();
+        } while (cursor != null);
+        return ids;
+    }
     private ContaResponse conta() {
         String nome = "teste_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
         return auth.cadastrar(new CadastroRequest(nome, nome + "@example.test", "98999999999", SENHA));

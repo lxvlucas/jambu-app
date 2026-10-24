@@ -63,11 +63,19 @@ campos desconhecidos são rejeitados no cadastro e na atualização.
 | `DELETE /api/meals/{id}/curtida` | 204; descurtir, idempotente |
 | `GET /api/meals/{id}/curtidas` | `{ "quantidade": 2, "curtidaPorMim": true }` |
 | `GET /api/meals/{id}/link` | `{ "url": "..." }`; própria ou de conta seguida |
-| `GET /api/timeline` | Meals próprias e de contas seguidas |
+| `GET /api/feed?aba=PARA_VOCE` ou `?aba=SEGUINDO` | Feed do app, sem os próprios posts; ver abaixo |
+| `GET /api/timeline` | Meals próprias e de contas seguidas (fica até o app usar o feed) |
 
 Listas de usuários/seguimentos retornam `{ "itens": [], "pagina": 0, "total": 0 }`; página começa
 em 0, limite entre 1 e 50. Buscas aceitam até 100 caracteres. Listas de Meals recebem
 `cursor` opcional e `limite`, retornando `{ "itens": [], "proximoCursor": null }`.
+**Feed (T19).** `GET /api/feed?aba=PARA_VOCE&cursor=&limite=20`: `PARA_VOCE` traz os posts de todos os
+outros usuários; `SEGUINDO`, só de quem a pessoa segue. **Nenhuma aba traz os próprios posts**, que
+ficam no perfil. Mesma ordem, cursor e limite da timeline. Cada item é
+`{ "meal": { ...Meal... }, "nomeRestaurante": "Coisas do Pará" }`, com o nome vindo do catálogo do
+Jambu (`null` só nas referências antigas do Google ainda sem nome). `SEGUINDO` vazio volta
+`{ "itens": [], "proximoCursor": null }`, e o app mostra "Siga pessoas para ver os posts delas aqui".
+`aba` ausente ou fora das duas: 400 `requisicao_invalida`.
 Não decodifique ou construa cursores no cliente. Ordenação: publicação e UUID,
 ambos decrescentes. Novos posts posteriores à primeira página aparecem ao atualizar
 a timeline; mudanças em seguimentos/exclusões podem alterar as páginas seguintes.
