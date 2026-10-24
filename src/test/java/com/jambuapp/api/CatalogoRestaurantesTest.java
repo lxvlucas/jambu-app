@@ -403,6 +403,42 @@ class CatalogoRestaurantesTest {
         assertThat(importacao.importar(REVISOR, lote("2026-10-21.0", praca)).itens().getFirst().resultado()).isEqualTo("IGNORADO_CATEGORIA");
     }
 
+    @Test void segundaContaConfirmaOuSugereCorrecaoDoLugarProvisorio() throws Exception {
+        // T08 (RN-57, R20): só outra conta com Meal ativa no lugar responde "Nome e bairro estão certos?".
+        var lugar = cadastrar("Lugar provisório " + UUID.randomUUID()).restaurante().id();
+        String caminho = "/api/restaurantes/" + lugar + "/retornos";
+        String confirma = "{\"tipo\":\"CONFIRMACAO\"}";
+        String corrige = "{\"tipo\":\"CORRECAO\",\"nomeSugerido\":\"Nome certo\",\"observacao\":\"O nome mudou\"}";
+        publicar(lugar);
+        String tokenAutor = token(autor);
+        UUID semMeal = conta(), segunda = conta(), terceira = conta(), quarta = conta();
+        meals.publicar(segunda, UUID.randomUUID().toString(), mealEm(lugar));
+        meals.publicar(terceira, UUID.randomUUID().toString(), mealEm(lugar));
+        meals.publicar(quarta, UUID.randomUUID().toString(), mealEm(lugar));
+        assertThat(http("POST", caminho, null, confirma, null).statusCode()).isEqualTo(401);
+        assertThat(codigo(http("POST", caminho, tokenAutor, confirma, null))).isEqualTo("acesso_negado");
+        assertThat(codigo(http("POST", caminho, token(semMeal), confirma, null))).isEqualTo("acesso_negado");
+        assertThat(codigo(http("POST", caminho, token(segunda), "{\"tipo\":\"CORRECAO\"}", null))).isEqualTo("dados_invalidos");
+        assertThat(codigo(http("POST", "/api/restaurantes/" + UUID.randomUUID() + "/retornos", token(segunda), confirma, null)))
+                .isEqualTo("recurso_inexistente");
+        // "Corrigir" mantém provisório; repetir a mesma resposta é seguro; mudar de ideia é conflito.
+        var correcao = http("POST", caminho, token(segunda), corrige, null);
+        assertThat(correcao.statusCode()).isEqualTo(200);
+        assertThat(json.readTree(correcao.body()).path("situacaoRestaurante").asString()).isEqualTo("PROVISORIO");
+        assertThat(http("POST", caminho, token(segunda), corrige, null).statusCode()).isEqualTo(200);
+        assertThat(codigo(http("POST", caminho, token(segunda), confirma, null))).isEqualTo("conflito");
+        assertThat(restaurantes.findById(lugar).orElseThrow().getSituacao()).isEqualTo(SituacaoRestaurante.PROVISORIO);
+        // "Sim" de outra conta verifica o lugar; depois disso não há mais o que confirmar.
+        var sim = http("POST", caminho, token(terceira), confirma, null);
+        assertThat(sim.statusCode()).isEqualTo(200);
+        assertThat(json.readTree(sim.body()).path("situacaoRestaurante").asString()).isEqualTo("ATIVO");
+        assertThat(http("POST", caminho, token(terceira), confirma, null).statusCode()).isEqualTo(200);
+        assertThat(codigo(http("POST", caminho, token(quarta), confirma, null))).isEqualTo("conflito");
+        assertThat(restaurantes.findById(lugar).orElseThrow().getSituacao()).isEqualTo(SituacaoRestaurante.ATIVO);
+        assertThat(jdbc.queryForList("select usuario_id || ':' || tipo from retornos_restaurantes where restaurante_id = ?",
+                String.class, lugar)).containsExactlyInAnyOrder(segunda + ":CORRECAO", terceira + ":CONFIRMACAO");
+    }
+
     @Test void contratoHttpProtegeCadastroEAdministracao() throws Exception {
         String username = jdbc.queryForObject("select username from usuarios where id = ?", String.class, autor);
         String token = auth.login(new LoginRequest(username, SENHA)).token();
@@ -419,6 +455,20 @@ class CatalogoRestaurantesTest {
         assertThat(http("POST", "/api/restaurantes/cadastros", token, extra, "forjado").statusCode()).isEqualTo(400);
     }
 
+    private UUID conta() {
+        String nome = "ret_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+        return auth.cadastrar(new CadastroRequest(nome, nome + "@example.test", "98999999999", SENHA)).id();
+    }
+    private String token(UUID usuario) {
+        String username = jdbc.queryForObject("select username from usuarios where id = ?", String.class, usuario);
+        return auth.login(new LoginRequest(username, SENHA)).token();
+    }
+    private MealRequest mealEm(UUID restauranteId) {
+        return new MealRequest(restauranteId, List.of(new DishRequest(null, "Prato", new BigDecimal("4"))), null, null, null, null, null);
+    }
+    private String codigo(HttpResponse<String> resposta) {
+        return json.readTree(resposta.body()).path("codigo").asString();
+    }
     private CadastroRestauranteResponse cadastrar(String nome) {
         return cadastros.cadastrar(autor, UUID.randomUUID().toString(), manual(nome, -2.53, -44.30, Set.of()));
     }

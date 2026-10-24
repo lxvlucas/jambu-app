@@ -93,6 +93,7 @@ public class Restaurante {
         throw RegraNegocioException.conflito("Complete os dados locais do restaurante antes de publicar.");
     }
     public UUID getId() { return id; }
+    public UUID getCriadoPor() { return criadoPor; }
     public long getVersao() { return versao; }
     public String getNome() { return nome; }
     public String getNomeNormalizado() { return nomeNormalizado; }

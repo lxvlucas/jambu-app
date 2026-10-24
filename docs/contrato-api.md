@@ -52,6 +52,7 @@ campos desconhecidos são rejeitados no cadastro e na atualização.
 | `POST /api/moderacao/restaurantes/importacoes/overture` | Importação administrativa de lote GeoJSON |
 | `GET /api/restaurantes/{id}` | Perfil só com dados do Jambu; nota e `ultimaAvaliacaoEm` ausentes quando não há Meals |
 | `GET /api/restaurantes/{id}/meals` | Meals ativas, por cursor |
+| `POST /api/restaurantes/{id}/retornos` | Resposta da 2ª conta a "Nome e bairro estão certos?": `CONFIRMACAO` verifica, `CORRECAO` mantém provisório |
 | `POST /api/meals` | 201, exige `Idempotency-Key`; header Location |
 | `GET /api/meals/{id}` | Detalhe de Meal ativa |
 | `PUT /api/meals/{id}` | Edição completa, exige `versao`; apenas autor |
@@ -146,6 +147,15 @@ URLs, sem chave nem cobrança: com `place_id`, `query_place_id` mais o nome pró
 de publicação da Meal ativa mais recente.
 Restaurantes rejeitados não aceitam nova Meal/troca, mas preservam histórico.
 GET /api/restaurantes/{id}/meals consulta somente o banco.
+
+**Confirmação pela 2ª conta (T08).** `POST /api/restaurantes/{id}/retornos` com
+`{ "tipo": "CONFIRMACAO" }` (o "Sim") ou `{ "tipo": "CORRECAO", "nomeSugerido": "...", "observacao": "..." }`
+(o "Corrigir"; pelo menos um dos dois, nome até 150 e observação até 500 caracteres). Resposta 200
+`{ "tipo": "CONFIRMACAO", "situacaoRestaurante": "ATIVO" }`. Só responde quem **não** cadastrou o lugar
+e tem Meal ativa nele (senão 403 `acesso_negado`); lugar inexistente ou rejeitado dá 404; lugar já
+verificado dá 409 `conflito`. Cada pessoa responde uma vez por lugar: repetir a mesma resposta devolve
+200 de novo (seguro para reenviar); mandar outra dá 409. `CONFIRMACAO` leva o lugar a `ATIVO`;
+`CORRECAO` o mantém `PROVISORIO` até a revisão dos founders.
 
 Contrato completo, revisão por UUID, importação e exemplos:
 [catálogo de restaurantes](catalogo-restaurantes.md).
