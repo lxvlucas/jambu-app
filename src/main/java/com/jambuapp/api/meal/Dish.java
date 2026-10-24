@@ -18,8 +18,9 @@ public class Dish {
     private BigDecimal nota;
     @Column(nullable = false)
     private int ordem;
-    /** Sim, não ou nulo (sem resposta): nulo nunca vira "não". */
-    private Boolean comeriaNovamente;
+    /** Marcação "comeria de novo": desmarcado (false) não quer dizer "não comeria". */
+    @Column(nullable = false)
+    private boolean comeriaNovamente;
     @Column(precision = 8, scale = 2)
     private BigDecimal preco;
     protected Dish() {}
@@ -34,7 +35,7 @@ public class Dish {
         if (item.preco() != null && item.preco().signum() < 0) throw RegraNegocioException.invalido("Preço não pode ser negativo.");
         this.nome = item.nome().strip();
         this.nota = item.nota();
-        this.comeriaNovamente = item.comeriaNovamente();
+        this.comeriaNovamente = Boolean.TRUE.equals(item.comeriaNovamente());
         this.preco = item.preco();
     }
     public static void validarNota(BigDecimal nota) {
@@ -49,6 +50,6 @@ public class Dish {
     public UUID getId() { return id; }
     public String getNome() { return nome; }
     public BigDecimal getNota() { return nota; }
-    public Boolean getComeriaNovamente() { return comeriaNovamente; }
+    public boolean getComeriaNovamente() { return comeriaNovamente; }
     public BigDecimal getPreco() { return preco; }
 }

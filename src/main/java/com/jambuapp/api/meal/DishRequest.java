@@ -6,8 +6,8 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import jakarta.validation.constraints.*;
 
 /**
- * comeriaNovamente e preco são opcionais (T15). Nulos ficam fora do JSON para que pedidos sem os
- * campos novos mantenham o mesmo hash de idempotência de antes.
+ * comeriaNovamente e preco são opcionais (T15). comeriaNovamente ausente é gravado como false (desmarcado).
+ * Nulos ficam fora do JSON para que pedidos sem os campos novos mantenham o mesmo hash de idempotência de antes.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record DishRequest(UUID id, @NotBlank @Size(max = 150) String nome, @NotNull BigDecimal nota,

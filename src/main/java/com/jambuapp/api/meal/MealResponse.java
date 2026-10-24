@@ -21,7 +21,10 @@ public record MealResponse(UUID id, UsuarioResumoResponse autor, RestauranteRefe
                 meal.getNotaOverall(), meal.getReview(), meal.getComeriaNovamente(), meal.getModalidade(),
                 meal.getDataRefeicao(), meal.getPublicadaEm(), meal.getEditadaEm(), meal.getVersao());
     }
-    /** comeriaNovamente: true, false ou nulo (sem resposta); preco nulo quando não informado (T15). */
+    /**
+     * comeriaNovamente: true (marcado) ou false (desmarcado), nunca nulo nas respostas novas; o tipo continua
+     * Boolean para ler respostas de idempotência gravadas antes da V9. preco nulo quando não informado (T15).
+     */
     public record DishResponse(UUID id, String nome, BigDecimal nota, FotoPublicaResponse foto,
             Boolean comeriaNovamente, BigDecimal preco) {
         public DishResponse(UUID id, String nome, BigDecimal nota, FotoPublicaResponse foto) {

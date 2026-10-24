@@ -26,8 +26,9 @@ public class Meal {
     private List<Dish> dishes = new ArrayList<>();
     @Column(length = 10000)
     private String review;
-    /** Legado da Meal inteira; desde a T15 o "comeria de novo" é por Dish e este campo é opcional. */
-    private Boolean comeriaNovamente;
+    /** Legado da Meal inteira; desde a T15 o "comeria de novo" é por Dish. Ausente vira false (desmarcado). */
+    @Column(nullable = false)
+    private boolean comeriaNovamente;
     @Enumerated(EnumType.STRING)
     @Column(length = 20)
     private Modalidade modalidade;
@@ -74,7 +75,7 @@ public class Meal {
         for (int i = 0; i < dishes.size(); i++) dishes.get(i).ordenar(i);
         this.restaurante = restaurante;
         this.review = request.review();
-        this.comeriaNovamente = request.comeriaNovamente();
+        this.comeriaNovamente = Boolean.TRUE.equals(request.comeriaNovamente());
         this.modalidade = request.modalidade();
         this.dataRefeicao = data;
     }
@@ -90,7 +91,7 @@ public class Meal {
     public Restaurante getRestaurante() { return restaurante; }
     public List<Dish> getDishes() { return Collections.unmodifiableList(dishes); }
     public String getReview() { return review; }
-    public Boolean getComeriaNovamente() { return comeriaNovamente; }
+    public boolean getComeriaNovamente() { return comeriaNovamente; }
     public Modalidade getModalidade() { return modalidade; }
     public LocalDate getDataRefeicao() { return dataRefeicao; }
     public Instant getPublicadaEm() { return publicadaEm; }
