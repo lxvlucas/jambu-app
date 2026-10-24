@@ -28,8 +28,12 @@ public class RestauranteService {
         var locais = local.buscar(termo);
         if (!locais.isEmpty() && !ampliar)
             return new SugestoesRestaurantesResponse(locais, List.of(), "NAO_SOLICITADO", true, true, sessao, null);
-        if (usuarioId != null && !cota.permitirBusca(usuarioId))
-            return new SugestoesRestaurantesResponse(locais, List.of(), "AGUARDE", true, true, sessao, null);
+        // O Google só é consultado a partir de 3 letras; a busca local já roda com 2.
+        if (NomesRestaurantes.normalizar(termo).length() < 3)
+            return new SugestoesRestaurantesResponse(locais, List.of(), "TERMO_CURTO", false, true, sessao, null);
+        String bloqueio = usuarioId == null ? null : cota.verificarBusca(usuarioId);
+        if (bloqueio != null)
+            return new SugestoesRestaurantesResponse(locais, List.of(), bloqueio, !"LIMITE_DIARIO".equals(bloqueio), true, sessao, null);
         try {
             var externos = places.sugerir(termo.strip(), sessao);
             return new SugestoesRestaurantesResponse(locais, externos,

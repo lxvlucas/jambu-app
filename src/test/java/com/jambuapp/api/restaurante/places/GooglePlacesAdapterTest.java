@@ -35,6 +35,9 @@ class GooglePlacesAdapterTest {
     volatile String corpo;
     GooglePlacesAdapter adapter;
     CotaPlacesService cota = mock(CotaPlacesService.class);
+    // Mesma área padrão da API: a ilha de São Luís (geografia/grande-sao-luis.geojson).
+    com.jambuapp.api.restaurante.AreaCatalogo area = new com.jambuapp.api.restaurante.AreaCatalogo(json,
+            new com.jambuapp.api.restaurante.CatalogoProperties(300, 300, 0.45, Set.of(), java.util.List.of("grande-sao-luis"), 5, 30));
 
     @BeforeEach
     void iniciar() throws Exception {
@@ -59,7 +62,7 @@ class GooglePlacesAdapterTest {
             finally { exchange.close(); }
         });
         servidor.start();
-        adapter = new GooglePlacesAdapter(config(true, "chave-ficticia", Duration.ofSeconds(2)), json, cota);
+        adapter = new GooglePlacesAdapter(config(true, "chave-ficticia", Duration.ofSeconds(2)), json, cota, area);
     }
     @AfterEach
     void encerrar() {
@@ -85,6 +88,13 @@ class GooglePlacesAdapterTest {
         assertThat(body.path("sessionToken").asString()).isEqualTo(sessao.toString());
         assertThat(body.path("languageCode").asString()).isEqualTo("pt-BR");
         assertThat(body.path("includedRegionCodes").get(0).asString()).isEqualTo("br");
+        // T02: o próprio Google só devolve lugares dentro do retângulo da ilha.
+        assertThat(body.has("locationBias")).isFalse();
+        var retangulo = body.path("locationRestriction").path("rectangle");
+        assertThat(retangulo.path("low").path("latitude").asDouble()).isBetween(-2.85, -2.70);
+        assertThat(retangulo.path("high").path("latitude").asDouble()).isBetween(-2.45, -2.30);
+        assertThat(retangulo.path("low").path("longitude").asDouble()).isBetween(-44.45, -44.30);
+        assertThat(retangulo.path("high").path("longitude").asDouble()).isBetween(-44.05, -43.90);
     }
     @Test
     void detailsUsaGetTokenAtribuicoesESomenteDadosPermitidos() {
@@ -94,8 +104,11 @@ class GooglePlacesAdapterTest {
         assertThat(uri.getPath()).isEqualTo("/v1/places/ChIJ_teste");
         assertThat(uri.getQuery()).contains("sessionToken=" + sessao).doesNotContain("key");
         assertThat(mascara).isEqualTo(GooglePlacesAdapter.DETAILS_MASK).doesNotContain("rating", "photos", "reviews", "*");
-        assertThat(lugar.nome()).isEqualTo("Nome externo");
-        assertThat(lugar.atribuicoes()).containsExactly(new AtribuicaoLugar("Fornecedor", URI.create("https://example.test/atribuicao")));
+        // T02: só id e types (SKU Essentials); nome e endereço do Google não são lidos.
+        assertThat(GooglePlacesAdapter.DETAILS_MASK).isEqualTo("id,types");
+        assertThat(lugar.tipos()).contains("restaurant");
+        resposta = "{\"id\":\"ChIJ_teste\",\"types\":[\"restaurant\"]}";
+        assertThat(adapter.consultar("ChIJ_teste", sessao).tipos()).containsExactly("restaurant");
         assertThat(json.writeValueAsString(lugar)).doesNotContain("rating", "reviews", "photos", "Não importar");
         adapter.consultar("ChIJ_teste", null);
         assertThat(uri.getQuery()).doesNotContain("sessionToken");
@@ -129,13 +142,13 @@ class GooglePlacesAdapterTest {
     @Test
     void timeoutTemPrazoFinitoENaoRetornaSucessoSimulado() {
         atraso = 1000;
-        adapter = new GooglePlacesAdapter(config(true, "chave-ficticia", Duration.ofMillis(100)), json, cota);
+        adapter = new GooglePlacesAdapter(config(true, "chave-ficticia", Duration.ofMillis(100)), json, cota, area);
         assertThatThrownBy(() -> adapter.consultar("ChIJ_teste", null)).isInstanceOfSatisfying(PlacesException.class,
                 ex -> assertThat(ex.getCodigo()).isEqualTo("places_timeout"));
     }
     @Test
     void configuracaoAusenteNaoDisparaHttp() {
-        adapter = new GooglePlacesAdapter(config(true, "", Duration.ofSeconds(1)), json, cota);
+        adapter = new GooglePlacesAdapter(config(true, "", Duration.ofSeconds(1)), json, cota, area);
         assertThatThrownBy(() -> adapter.consultar("ChIJ_teste", null)).isInstanceOfSatisfying(PlacesException.class,
                 ex -> assertThat(ex.getCodigo()).isEqualTo("places_nao_configurado"));
         assertThat(uri).isNull();

@@ -38,14 +38,15 @@ curtas somente para banco. O adaptador também rejeita uso dentro de transação
 Autocomplete usa POST em `/v1/places:autocomplete`; seleção/perfil usam GET em
 `/v1/places/{placeId}`. O token UUID Places segue no corpo de autocomplete e na query
 da confirmação, nunca como Bearer. O detalhe independente não recebe esse token.
-Busca tem idioma pt-BR, região brasileira e viés de 25 km do centro de São Luís;
-o viés não restringe resultados ao município. As sugestões são filtradas pelos tipos
+Busca tem idioma pt-BR, região brasileira e restrição (`locationRestriction`) ao retângulo
+que envolve as áreas do catálogo (padrão: a ilha de São Luís); lugares de fora não são sugeridos. As sugestões são filtradas pelos tipos
 aceitos, e seleção confirma o tipo novamente. Nome/endereço do cliente não são aceitos.
 
 Máscaras explícitas:
 
 - Autocomplete: `suggestions.placePrediction.placeId,suggestions.placePrediction.text.text,suggestions.placePrediction.types`.
-- Details: `id,displayName,formattedAddress,types,googleMapsUri,attributions`.
+- Details: `id,types` (SKU Essentials). Nome, endereço e link do Google não são pedidos:
+  o detalhe só confirma que o lugar é de comida.
 
 Não se solicitam notas, reviews ou fotos Google. Não há wildcard, importação em
 massa, retry automático, log de payloads ou fallback fictício. O prazo cobre a resposta

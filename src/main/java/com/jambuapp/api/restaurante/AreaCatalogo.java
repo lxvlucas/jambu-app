@@ -15,6 +15,7 @@ import tools.jackson.databind.json.JsonMapper;
 public class AreaCatalogo {
     private final List<JsonNode> poligonos = new ArrayList<>();
     private final String nome;
+    private final Retangulo retangulo;
     public AreaCatalogo(JsonMapper json, CatalogoProperties config) {
         List<String> nomes = new ArrayList<>();
         for (String area : config.areas()) {
@@ -37,7 +38,16 @@ public class AreaCatalogo {
         }
         if (poligonos.isEmpty()) throw new IllegalStateException("Nenhuma área do catálogo configurada.");
         nome = String.join(" e ", nomes);
+        double sul = 90, norte = -90, oeste = 180, leste = -180;
+        for (JsonNode aneis : poligonos) for (JsonNode ponto : aneis.get(0)) {
+            double x = ponto.get(0).asDouble(), y = ponto.get(1).asDouble();
+            sul = Math.min(sul, y); norte = Math.max(norte, y); oeste = Math.min(oeste, x); leste = Math.max(leste, x);
+        }
+        retangulo = new Retangulo(sul, oeste, norte, leste);
     }
+    /** Retângulo que envolve todas as áreas; usado para restringir a busca no Google (T02). */
+    public Retangulo retangulo() { return retangulo; }
+    public record Retangulo(double sul, double oeste, double norte, double leste) {}
     /** Nome exibido nas mensagens, como "Grande São Luís". */
     public String nome() { return nome; }
     public boolean contem(double latitude, double longitude) {
