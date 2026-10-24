@@ -248,6 +248,47 @@ class JambuApiApplicationTests {
     }
 
     @Test
+    void comentarEListarComentariosDeUmPost() throws Exception {
+        // T21 (RN-34): qualquer conta comenta post ativo; a lista vai do mais antigo ao mais novo.
+        var autor = conta();
+        var leitor = conta();
+        var post = publicar(autor.id(), "4");
+        String tokenAutor = auth.login(new LoginRequest(autor.username(), SENHA)).token();
+        String tokenLeitor = auth.login(new LoginRequest(leitor.username(), SENHA)).token();
+        String caminho = "/api/meals/" + post.id() + "/comentarios";
+        assertThat(http("POST", caminho, null, "{\"texto\":\"Oi\"}", "c1").statusCode()).isEqualTo(401);
+        assertThat(http("POST", caminho, tokenLeitor, "{\"texto\":\"Oi\"}", null).statusCode()).isEqualTo(400);
+        assertThat(http("POST", caminho, tokenLeitor, "{\"texto\":\"   \"}", "c-vazio").statusCode()).isEqualTo(400);
+        assertThat(http("POST", caminho, tokenLeitor, "{\"texto\":\"" + "a".repeat(1001) + "\"}", "c-longo").statusCode()).isEqualTo(400);
+        assertThat(http("POST", "/api/meals/" + UUID.randomUUID() + "/comentarios", tokenLeitor, "{\"texto\":\"Oi\"}", "c-404").statusCode())
+                .isEqualTo(404);
+        var primeiro = http("POST", caminho, tokenLeitor, "{\"texto\":\"  Que tacacá bonito!  \"}", "c1");
+        assertThat(primeiro.statusCode()).isEqualTo(201);
+        var corpo = json.readTree(primeiro.body());
+        assertThat(corpo.path("texto").asString()).isEqualTo("Que tacacá bonito!");
+        assertThat(corpo.path("autor").path("id").asString()).isEqualTo(leitor.id().toString());
+        // Reenviar com a mesma chave devolve o mesmo comentário; outra mensagem com a mesma chave é conflito.
+        var repetido = http("POST", caminho, tokenLeitor, "{\"texto\":\"Que tacacá bonito!\"}", "c1");
+        assertThat(repetido.statusCode()).isEqualTo(201);
+        assertThat(json.readTree(repetido.body()).path("id").asString()).isEqualTo(corpo.path("id").asString());
+        assertThat(http("POST", caminho, tokenLeitor, "{\"texto\":\"Outro texto\"}", "c1").statusCode()).isEqualTo(409);
+        clock.agora = clock.agora.plusSeconds(1);
+        assertThat(http("POST", caminho, tokenAutor, "{\"texto\":\"Obrigado!\"}", "c2").statusCode()).isEqualTo(201);
+        clock.agora = clock.agora.plusSeconds(1);
+        assertThat(http("POST", caminho, tokenLeitor, "{\"texto\":\"Volto lá\"}", "c3").statusCode()).isEqualTo(201);
+        var pagina1 = json.readTree(http("GET", caminho + "?limite=2", tokenLeitor, null, null).body());
+        assertThat(pagina1.path("itens")).extracting(i -> i.path("texto").asString()).containsExactly("Que tacacá bonito!", "Obrigado!");
+        var pagina2 = json.readTree(http("GET", caminho + "?limite=2&cursor=" + pagina1.path("proximoCursor").asString(), tokenLeitor, null, null).body());
+        assertThat(pagina2.path("itens")).extracting(i -> i.path("texto").asString()).containsExactly("Volto lá");
+        assertThat(pagina2.path("proximoCursor").isNull()).isTrue();
+        assertThat(jdbc.queryForObject("select count(*) from comentarios where meal_id = ?", Integer.class, post.id())).isEqualTo(3);
+        // Post excluído: sem comentários novos nem lista.
+        meals.excluir(autor.id(), post.id());
+        assertThat(http("GET", caminho, tokenLeitor, null, null).statusCode()).isEqualTo(404);
+        assertThat(http("POST", caminho, tokenLeitor, "{\"texto\":\"Oi\"}", "c4").statusCode()).isEqualTo(404);
+    }
+
+    @Test
     void dataDaRefeicaoNoFuturoERecusadaNaPublicacaoENaEdicao() {
         // AGORA = 19/10/2026 12:00 em São Luís.
         UUID autor = conta().id();

@@ -62,6 +62,8 @@ campos desconhecidos são rejeitados no cadastro e na atualização.
 | `PUT /api/meals/{id}/curtida` | 204; curtir, idempotente (uma curtida por pessoa); Meal excluída ou inexistente: 404 |
 | `DELETE /api/meals/{id}/curtida` | 204; descurtir, idempotente |
 | `GET /api/meals/{id}/curtidas` | `{ "quantidade": 2, "curtidaPorMim": true }` |
+| `POST /api/meals/{id}/comentarios` | 201; comentar, exige `Idempotency-Key`; ver abaixo |
+| `GET /api/meals/{id}/comentarios` | Comentários do mais antigo ao mais novo, por cursor |
 | `GET /api/meals/{id}/link` | `{ "url": "..." }`; própria ou de conta seguida |
 | `GET /api/feed?aba=PARA_VOCE` ou `?aba=SEGUINDO` | Feed do app, sem os próprios posts; ver abaixo |
 | `GET /api/timeline` | Meals próprias e de contas seguidas (fica até o app usar o feed) |
@@ -69,6 +71,13 @@ campos desconhecidos são rejeitados no cadastro e na atualização.
 Listas de usuários/seguimentos retornam `{ "itens": [], "pagina": 0, "total": 0 }`; página começa
 em 0, limite entre 1 e 50. Buscas aceitam até 100 caracteres. Listas de Meals recebem
 `cursor` opcional e `limite`, retornando `{ "itens": [], "proximoCursor": null }`.
+**Comentários (T21).** `POST /api/meals/{id}/comentarios` com `{ "texto": "..." }` (1 a 1.000
+caracteres, espaços nas pontas removidos) e `Idempotency-Key`. Resposta 201
+`{ "id", "autor": { "id", "username" }, "texto", "criadoEm" }`. Repetir a mesma chave com o mesmo
+texto devolve o mesmo comentário; outro texto com a mesma chave dá 409. `GET` lista do mais antigo
+para o mais novo, com `cursor` e `limite` (1 a 50), no formato `{ "itens", "proximoCursor" }`.
+Meal excluída ou inexistente: 404.
+
 **Feed (T19).** `GET /api/feed?aba=PARA_VOCE&cursor=&limite=20`: `PARA_VOCE` traz os posts de todos os
 outros usuários; `SEGUINDO`, só de quem a pessoa segue. **Nenhuma aba traz os próprios posts**, que
 ficam no perfil. Mesma ordem, cursor e limite da timeline. Cada item é
