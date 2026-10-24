@@ -53,8 +53,11 @@ public class CatalogoTransacionalService {
         restaurantes.saveAndFlush(r);
         return concluir(autor, chave, request, r, request.googlePlaceId() != null && !googleValidado ? "CRIADO_SEM_GOOGLE" : "CRIADO");
     }
-    /** Só lugares realmente novos contam; reutilização e duplicata não. Roda sob o lock do catálogo. */
-    private void exigirLimiteDiario(UUID autor) {
+    /**
+     * Só lugares realmente novos contam; reutilização e duplicata não. A conferência definitiva roda sob o
+     * lock do catálogo; CadastroRestauranteService também chama antes do Google, para não gastar uma chamada.
+     */
+    public void exigirLimiteDiario(UUID autor) {
         var fuso = java.time.ZoneId.of("America/Sao_Paulo");
         var agora = clock.instant();
         var inicio = agora.atZone(fuso).toLocalDate().atStartOfDay(fuso);

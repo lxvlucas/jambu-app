@@ -36,6 +36,8 @@ public class CadastroRestauranteService {
         if (r.googlePlaceId() != null && local.porGoogle(r.googlePlaceId()).isPresent())
             return catalogo.cadastrar(autor, chave, r, false);
         boolean validado = false;
+        // Acima do limite diário, recusa antes de gastar uma chamada ao Google.
+        if (r.googlePlaceId() != null) catalogo.exigirLimiteDiario(autor);
         if (r.googlePlaceId() != null) {
             if (r.tokenSessao() == null) throw RegraNegocioException.invalido("Informe tokenSessao na seleção Google.");
             try {

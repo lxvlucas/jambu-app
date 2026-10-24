@@ -924,9 +924,7 @@ class JambuApiApplicationTests {
         }
         @Override public DadosLugar consultar(String id, UUID token) {
             verificar(token);
-            return new DadosLugar(id, "Nome externo simulado", "Endereço externo simulado",
-                    List.of(id.startsWith("nao_permitido") ? "school" : "restaurant"),
-                    URI.create("https://maps.google.com/?cid=1"), List.of(new AtribuicaoLugar("Provedor de teste", URI.create("https://example.test"))));
+            return new DadosLugar(id, List.of(id.startsWith("nao_permitido") ? "school" : "restaurant"));
         }
         void verificar(UUID token) {
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();

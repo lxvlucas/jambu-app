@@ -131,8 +131,10 @@ Google já existentes; não cria mais restaurante apenas com placeId.
 A busca local ignora acentos, usa prefixos das palavras, tolera erro de digitação
 (trigramas) e também acha o restaurante pelo nome de pratos já avaliados; nome exato vem
 primeiro e verificados (`ATIVO`) antes de provisórios; até 20 sugestões.
-A ampliação é limitada a uma por segundo por usuário e 100 chamadas/dia para a
-API inteira, incluindo detalhes, no fuso America/Sao_Paulo. O token de busca
+A ampliação só acontece com 3 letras ou mais (`TERMO_CURTO` abaixo disso), é limitada a uma por
+segundo e 30 por dia por usuário (`AGUARDE` e `LIMITE_DIARIO`) e a 300 chamadas/dia para a API
+inteira, incluindo detalhes, no fuso America/Sao_Paulo. O Google só sugere lugares dentro do
+retângulo da área do catálogo (`locationRestriction`), e o detalhe pede só `id,types`. O token de busca
 não é o Bearer. Respostas incluem Cache-Control: no-store; manter atribuições visíveis.
 
 Perfis usam só dados do Jambu e **nunca chamam o Google**, nem com a cota esgotada.

@@ -101,6 +101,36 @@ class CatalogoRestaurantesTest {
         assertThat(places.chamadas.get()).isZero();
     }
 
+    @Test void googleSoComTresLetrasOuMais() {
+        // T02: a busca local começa com 2 letras; o Google, só com 3.
+        int antes = places.chamadas.get();
+        var curta = service.buscar("qx", null, false, autor);
+        assertThat(curta.estadoExterno()).isEqualTo("TERMO_CURTO");
+        assertThat(curta.itens()).isEmpty();
+        assertThat(service.buscar("qx", curta.tokenSessao(), true, autor).estadoExterno()).isEqualTo("TERMO_CURTO");
+        assertThat(places.chamadas.get()).isEqualTo(antes);
+        assertThat(service.buscar("qxw" + UUID.randomUUID().toString().substring(0, 4), null, false, autor).estadoExterno())
+                .isNotEqualTo("TERMO_CURTO");
+        assertThat(places.chamadas.get()).isEqualTo(antes + 1);
+    }
+
+    @Test void buscaAmpliadaLimitadaPorPessoaPorDia() {
+        // T02: até 30 buscas no Google por pessoa por dia; depois, só a busca local e "Adicionar".
+        for (int i = 0; i < 30; i++) {
+            clock.agora = clock.agora.plusSeconds(2);
+            assertThat(service.buscar("sem local " + UUID.randomUUID(), null, false, autor).estadoExterno()).isEqualTo("DISPONIVEL");
+        }
+        int antes = places.chamadas.get();
+        clock.agora = clock.agora.plusSeconds(2);
+        var bloqueada = service.buscar("sem local " + UUID.randomUUID(), null, false, autor);
+        assertThat(bloqueada.estadoExterno()).isEqualTo("LIMITE_DIARIO");
+        assertThat(bloqueada.podeAdicionar()).isTrue();
+        assertThat(places.chamadas.get()).isEqualTo(antes);
+        clock.agora = clock.agora.plusSeconds(86400);
+        assertThat(service.buscar("sem local " + UUID.randomUUID(), null, false, autor).estadoExterno()).isEqualTo("DISPONIVEL");
+        assertThat(config.limiteGoogleDia()).isEqualTo(300);
+    }
+
     @Test void buscaToleraErroDeDigitacaoSemChamarGoogle() {
         // T06: trigramas (pg_trgm) perdoam "burguer" no lugar de "burger".
         String sufixo = UUID.randomUUID().toString().substring(0, 8);
@@ -201,17 +231,19 @@ class CatalogoRestaurantesTest {
     @Test void cotaAtomicaPersisteEntreInstanciasResetaSomenteNoDiaSeguinte() throws Exception {
         var dia = LocalDate.ofInstant(clock.instant(), ZoneId.of("America/Sao_Paulo"));
         jdbc.update("delete from consumo_places_diario where dia = ?", dia);
-        var resultados = paralelo(120, i -> {
+        // O teto vem da configuração (300 desde a T02); 20 tentativas a mais precisam ser negadas.
+        int teto = config.limiteGoogleDia();
+        var resultados = paralelo(teto + 20, i -> {
             try { cota.reservar(); return "reservada"; }
             catch (PlacesException ex) { assertThat(ex.getCodigo()).isEqualTo("places_cota_esgotada"); return "negada"; }
         });
-        assertThat(resultados.stream().filter("reservada"::equals).count()).isEqualTo(100);
+        assertThat(resultados.stream().filter("reservada"::equals).count()).isEqualTo(teto);
         var outraInstancia = new CotaPlacesService(jdbc, clock, config);
         assertThatThrownBy(outraInstancia::reservar).isInstanceOf(PlacesException.class);
         clock.agora = dia.plusDays(1).atStartOfDay(ZoneId.of("America/Sao_Paulo")).toInstant();
         jdbc.update("delete from consumo_places_diario where dia = ?", dia.plusDays(1));
         cota.reservar();
-        assertThat(jdbc.queryForObject("select chamadas from consumo_places_diario where dia = ?", Integer.class, dia)).isEqualTo(100);
+        assertThat(jdbc.queryForObject("select chamadas from consumo_places_diario where dia = ?", Integer.class, dia)).isEqualTo(teto);
         assertThat(jdbc.queryForObject("select chamadas from consumo_places_diario where dia = ?", Integer.class, dia.plusDays(1))).isEqualTo(1);
     }
 
@@ -339,6 +371,12 @@ class CatalogoRestaurantesTest {
         // 15:00Z = 12:00 em São Luís; faltam 12 h para a meia-noite local.
         assertThat(http.headers().firstValue("Retry-After")).hasValue("43200");
         assertThat(http.body()).contains("limite_cadastros");
+        // T02: acima do limite, a escolha de um resultado do Google é recusada antes de chamar o Google.
+        int chamadasAntes = places.chamadas.get();
+        assertThatThrownBy(() -> cadastros.cadastrar(autor, "lim-google", new CadastroRestauranteRequest(UUID.randomUUID().toString(),
+                -2.53, -44.30, CategoriaRestaurante.RESTAURANTE, "limite_" + UUID.randomUUID(), UUID.randomUUID(), Set.of())))
+                .isInstanceOfSatisfying(RegraNegocioException.class, ex -> assertThat(ex.getCodigo()).isEqualTo("limite_cadastros"));
+        assertThat(places.chamadas.get()).isEqualTo(chamadasAntes);
         clock.agora = clock.agora.plusSeconds(43200);
         assertThat(cadastros.cadastrar(autor, "lim-amanha", manual(UUID.randomUUID().toString(), -2.53, -44.30, Set.of())).situacao())
                 .isEqualTo("CRIADO");

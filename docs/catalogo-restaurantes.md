@@ -22,7 +22,8 @@ dependências Maven. As interfaces Android/web ainda precisam consumir este cont
 
 A resposta da busca inclui `estadoExterno`: `NAO_SOLICITADO`,
 `DISPONIVEL`, `SEM_RESULTADOS`, `DESATIVADO`, `COTA_ESGOTADA`,
-`INDISPONIVEL` ou `AGUARDE`; inclui também `podeAdicionar`,
+`INDISPONIVEL`, `AGUARDE`, `TERMO_CURTO` (menos de 3 letras: o Google não é consultado) ou
+`LIMITE_DIARIO` (a pessoa já fez as buscas ampliadas do dia); inclui também `podeAdicionar`,
 `tokenSessao` e `atribuicaoGoogleMaps`. Falhas externas não tornam a
 busca local uma resposta 503. O endpoint antigo `/sugestoes` continua como alias.
 
@@ -30,7 +31,10 @@ O cliente deve aguardar uma pausa na digitação (sugestão: 500 ms), cancelar/i
 respostas de termos ultrapassados e evitar buscas externas paralelas. O servidor
 permite no máximo uma ampliação por segundo por usuário, entre instâncias, retornando
 `AGUARDE` nas repetições rápidas, sem consumir chamada Google. Nesse caso o
-cliente preserva a lista que já possui e pode repetir depois de 1 segundo.
+cliente preserva a lista que já possui e pode repetir depois de 1 segundo. Cada pessoa faz até
+`JAMBU_LIMITE_BUSCAS_AMPLIADAS_DIA` buscas ampliadas por dia (padrão 30, fuso de São Luís);
+depois disso vem `LIMITE_DIARIO` com `podeVerMais=false`, e continua valendo a busca local e o
+"Adicionar restaurante".
 O token da interação pode ser criado pelo cliente; se omitido, a API devolve um
 UUID. Reutilizar na mesma interação e trocar ao concluir ou abandonar; não é token
 de autenticação. Não armazenar respostas Google como cache permanente.
@@ -184,7 +188,7 @@ e os [avisos de fontes e licenças](licencas/overture/README.md).
 
 ## Cota, migração e limites operacionais
 
-`JAMBU_GOOGLE_PLACES_LIMITE_DIA=100`, conforme escolha de Lucas.
+`JAMBU_GOOGLE_PLACES_LIMITE_DIA=300` (padrão desde a T02, decisão do MVP; antes era 100).
 Zero impede chamadas. Cada tentativa HTTP de autocomplete/detalhe reserva uma
 chamada no PostgreSQL antes da rede. Erro/timeout não devolve a chamada, e reservas
 não são perdidas após reinício. O dia segue America/Sao_Paulo. Isso limita
