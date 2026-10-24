@@ -480,6 +480,51 @@ class CatalogoRestaurantesTest {
                 Boolean.class, lugar)).isTrue();
     }
 
+    @Test void importacaoSeparaOvertureEmFaixasDeConfianca() {
+        // T04 (RN-43, R16): >= 0,7 verificado; 0,5-0,7 provisório; 0,3-0,5 escondido, fora da busca; < 0,3 fora.
+        var ids = List.of(UUID.randomUUID().toString(), UUID.randomUUID().toString(), UUID.randomUUID().toString(),
+                UUID.randomUUID().toString(), UUID.randomUUID().toString());
+        var confiancas = List.of(0.8, 0.7, 0.5, 0.3, 0.29);
+        var nomes = ids.stream().map(i -> "x" + i.replace("-", "")).toList();
+        List<JsonNode> features = new ArrayList<>();
+        for (int i = 0; i < 5; i++) features.add(comConfianca(feature(ids.get(i), nomes.get(i), 1), confiancas.get(i)));
+        var lote = new ImportacaoOvertureRequest("2026-10-21.0", List.of("CDLA-Permissive-2.0"), features);
+        assertThat(importacao.importar(REVISOR, lote).itens()).extracting(ImportacaoOvertureService.Item::resultado)
+                .containsExactly("CRIADO", "CRIADO", "CRIADO_PROVISORIO", "ESCONDIDO", "IGNORADO_BAIXA_CONFIANCA");
+        assertThat(restaurantes.findByOvertureId(ids.get(0)).orElseThrow().getSituacao()).isEqualTo(SituacaoRestaurante.ATIVO);
+        assertThat(restaurantes.findByOvertureId(ids.get(1)).orElseThrow().getSituacao()).isEqualTo(SituacaoRestaurante.ATIVO);
+        assertThat(restaurantes.findByOvertureId(ids.get(2)).orElseThrow().getSituacao()).isEqualTo(SituacaoRestaurante.PROVISORIO);
+        assertThat(restaurantes.findByOvertureId(ids.get(3))).isEmpty();
+        assertThat(restaurantes.findByOvertureId(ids.get(4))).isEmpty();
+        assertThat(jdbc.queryForObject("select nome from referencias_overture where overture_id = ?", String.class, ids.get(3)))
+                .isEqualTo(nomes.get(3));
+        assertThat(jdbc.queryForObject("select count(*) from referencias_overture where overture_id = ?", Integer.class, ids.get(4))).isZero();
+        // Confiança logo abaixo de 0,5 continua escondida, sem arredondar (caso real: 0,49973 derrubava o lote).
+        String quase = UUID.randomUUID().toString();
+        assertThat(importacao.importar(REVISOR, new ImportacaoOvertureRequest("2026-10-21.0", List.of("CDLA-Permissive-2.0"),
+                List.of(comConfianca(feature(quase, "x" + quase.replace("-", ""), 1), 0.4997337758541107)))).itens().getFirst().resultado())
+                .isEqualTo("ESCONDIDO");
+        assertThat(jdbc.queryForObject("select confianca from referencias_overture where overture_id = ?", Double.class, quase))
+                .isEqualTo(0.4997337758541107);
+        // O escondido não aparece na busca nem como possível duplicata.
+        assertThat(service.buscar(nomes.get(3), null, false, autor).locais()).isEmpty();
+        // Reimportar o mesmo lote não duplica nada.
+        assertThat(importacao.importar(REVISOR, lote).itens()).extracting(ImportacaoOvertureService.Item::resultado)
+                .containsExactly("INALTERADO", "INALTERADO", "INALTERADO", "ESCONDIDO", "IGNORADO_BAIXA_CONFIANCA");
+        assertThat(jdbc.queryForObject("select count(*) from referencias_overture where overture_id = ?", Integer.class, ids.get(3))).isEqualTo(1);
+        // Se a confiança sobe numa release nova, o escondido vira restaurante provisório e sai da tabela escondida.
+        var subiu = new ImportacaoOvertureRequest("2026-11-19.0", List.of("CDLA-Permissive-2.0"),
+                List.of(comConfianca(feature(ids.get(3), nomes.get(3), 2), 0.6)));
+        assertThat(importacao.importar(REVISOR, subiu).itens().getFirst().resultado()).isEqualTo("CRIADO_PROVISORIO");
+        assertThat(restaurantes.findByOvertureId(ids.get(3)).orElseThrow().getSituacao()).isEqualTo(SituacaoRestaurante.PROVISORIO);
+        assertThat(jdbc.queryForObject("select count(*) from referencias_overture where overture_id = ?", Integer.class, ids.get(3))).isZero();
+        // Um restaurante que já existe não é escondido se a confiança cair.
+        var caiu = new ImportacaoOvertureRequest("2026-12-17.0", List.of("CDLA-Permissive-2.0"),
+                List.of(comConfianca(feature(ids.get(0), nomes.get(0), 2), 0.4)));
+        assertThat(importacao.importar(REVISOR, caiu).itens().getFirst().resultado()).isEqualTo("IGNORADO_BAIXA_CONFIANCA");
+        assertThat(restaurantes.findByOvertureId(ids.get(0)).orElseThrow().getSituacao()).isEqualTo(SituacaoRestaurante.ATIVO);
+    }
+
     @Test void contratoHttpProtegeCadastroEAdministracao() throws Exception {
         String username = jdbc.queryForObject("select username from usuarios where id = ?", String.class, autor);
         String token = auth.login(new LoginRequest(username, SENHA)).token();
@@ -496,6 +541,10 @@ class CatalogoRestaurantesTest {
         assertThat(http("POST", "/api/restaurantes/cadastros", token, extra, "forjado").statusCode()).isEqualTo(400);
     }
 
+    private JsonNode comConfianca(JsonNode feature, double confianca) {
+        ((tools.jackson.databind.node.ObjectNode) feature.path("properties")).put("confidence", confianca);
+        return feature;
+    }
     private UUID conta() {
         String nome = "ret_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
         return auth.cadastrar(new CadastroRequest(nome, nome + "@example.test", "98999999999", SENHA)).id();

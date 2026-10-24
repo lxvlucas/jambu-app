@@ -5,6 +5,7 @@ import java.util.*;
 import com.jambuapp.api.comum.RegraNegocioException;
 import com.jambuapp.api.restaurante.*;
 import jakarta.validation.Validator;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
@@ -19,11 +20,12 @@ public class ImportacaoOvertureService {
     private final AreaCatalogo area;
     private final Validator validator;
     private final Clock clock;
+    private final JdbcTemplate jdbc;
     private static final Set<String> LICENCAS = Set.of("CDLA-Permissive-2.0", "Apache-2.0", "CC0-1.0");
     public ImportacaoOvertureService(RestauranteRepository restaurantes, CatalogoTransacionalService catalogo,
-            RevisaoRestauranteService revisao, AreaCatalogo area, Validator validator, Clock clock) {
+            RevisaoRestauranteService revisao, AreaCatalogo area, Validator validator, Clock clock, JdbcTemplate jdbc) {
         this.restaurantes = restaurantes; this.catalogo = catalogo; this.revisao = revisao;
-        this.area = area; this.validator = validator; this.clock = clock;
+        this.area = area; this.validator = validator; this.clock = clock; this.jdbc = jdbc;
     }
     public Resultado importar(UUID revisorId, ImportacaoOvertureRequest request) {
         revisao.exigirRevisor(revisorId);
@@ -56,8 +58,9 @@ public class ImportacaoOvertureService {
         if (!area.contem(lat, lon)) return new Item(id, "FORA_DO_RECORTE", null);
         String status = texto(props, "operating_status");
         if (status != null && !"open".equals(status)) return new Item(id, "IGNORADO_FECHADO", null);
-        if (props.has("confidence") && props.path("confidence").asDouble() < 0.7)
-            return new Item(id, "IGNORADO_BAIXA_CONFIANCA", null);
+        // Faixas de confiança (T04, RN-43). Sem o campo, vale como confiável, como antes.
+        double confianca = props.has("confidence") ? props.path("confidence").asDouble() : 1;
+        if (confianca < 0.3) return new Item(id, "IGNORADO_BAIXA_CONFIANCA", null);
         var categoria = categoria(props);
         if (categoria == null) return new Item(id, "IGNORADO_CATEGORIA", null);
         String nome = texto(props.path("names"), "primary");
@@ -75,7 +78,18 @@ public class ImportacaoOvertureService {
                 + "; licenças: " + String.join(", ", request.licencas());
         if (atribuicao.length() > 1000) throw RegraNegocioException.invalido("Atribuições excedem o limite.");
         int versao = props.path("version").asInt();
+        String endereco = null;
+        if (props.path("addresses").isArray() && !props.path("addresses").isEmpty()) {
+            endereco = texto(props.path("addresses").get(0), "freeform");
+            if (endereco != null && endereco.length() > 300) endereco = endereco.substring(0, 300);
+        }
         var existente = restaurantes.findByOvertureId(id);
+        if (confianca < 0.5) {
+            // Restaurante que já está no catálogo não é escondido; o resto fica fora da busca.
+            if (existente.isPresent()) return new Item(id, "IGNORADO_BAIXA_CONFIANCA", existente.get().getId());
+            esconder(id, request, versao, confianca, fontes.toString(), atribuicao, nome, lat, lon, categoria, endereco);
+            return new Item(id, "ESCONDIDO", null);
+        }
         if (existente.isPresent()) {
             var r = existente.get();
             if (request.release().compareTo(r.getOvertureRelease()) < 0 || versao < r.getOvertureVersao())
@@ -88,15 +102,35 @@ public class ImportacaoOvertureService {
         var r = existente.orElseGet(() -> Restaurante.importado(nome, lat, lon, categoria, clock.instant()));
         // Não fundir por nome/proximidade. A colisão fica visível aos founders.
         if (!candidatos.isEmpty()) r.revisar(SituacaoRestaurante.PROVISORIO, clock.instant());
-        String endereco = null;
-        if (props.path("addresses").isArray() && !props.path("addresses").isEmpty()) {
-            endereco = texto(props.path("addresses").get(0), "freeform");
-            if (endereco != null && endereco.length() > 300) endereco = endereco.substring(0, 300);
-        }
+        // A faixa só decide a situação na criação; depois, quem muda são a 2ª conta e os founders.
+        boolean provisorio = existente.isEmpty() && confianca < 0.7;
+        if (provisorio) r.revisar(SituacaoRestaurante.PROVISORIO, clock.instant());
         r.atualizarOverture(id, request.release(), versao, fontes.toString(), String.join(", ", request.licencas()), atribuicao,
                 nome, lat, lon, categoria, endereco, clock.instant());
         restaurantes.saveAndFlush(r);
-        return new Item(id, existente.isPresent() ? "ATUALIZADO" : candidatos.isEmpty() ? "CRIADO" : "CRIADO_PARA_REVISAO", r.getId());
+        // Se estava escondido numa release anterior, agora é restaurante: sai da tabela escondida.
+        if (existente.isEmpty()) jdbc.update("delete from referencias_overture where overture_id = ?", id);
+        return new Item(id, existente.isPresent() ? "ATUALIZADO" : !candidatos.isEmpty() ? "CRIADO_PARA_REVISAO"
+                : provisorio ? "CRIADO_PROVISORIO" : "CRIADO", r.getId());
+    }
+    /** Grava ou atualiza o lugar escondido (0,3 a 0,5); release ou versão mais antiga não sobrescreve. */
+    private void esconder(String id, ImportacaoOvertureRequest request, int versao, double confianca, String fontes,
+            String atribuicao, String nome, double lat, double lon, CategoriaRestaurante categoria, String endereco) {
+        jdbc.update("""
+                insert into referencias_overture(overture_id, nome, nome_normalizado, latitude, longitude, categoria, endereco,
+                    confianca, overture_release, overture_versao, fontes_overture, licencas_overture, atribuicao_overture, atualizado_em)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                on conflict (overture_id) do update set nome = excluded.nome, nome_normalizado = excluded.nome_normalizado,
+                    latitude = excluded.latitude, longitude = excluded.longitude, categoria = excluded.categoria,
+                    endereco = excluded.endereco, confianca = excluded.confianca, overture_release = excluded.overture_release,
+                    overture_versao = excluded.overture_versao, fontes_overture = excluded.fontes_overture,
+                    licencas_overture = excluded.licencas_overture, atribuicao_overture = excluded.atribuicao_overture,
+                    atualizado_em = excluded.atualizado_em
+                where (excluded.overture_release, excluded.overture_versao)
+                    > (referencias_overture.overture_release, referencias_overture.overture_versao)
+                """, id, nome, NomesRestaurantes.normalizar(nome), lat, lon, categoria.name(), endereco,
+                confianca, request.release(), versao,
+                fontes, String.join(", ", request.licencas()), atribuicao, java.sql.Timestamp.from(clock.instant()));
     }
     private CategoriaRestaurante categoria(JsonNode props) {
         Set<String> categorias = new HashSet<>();
