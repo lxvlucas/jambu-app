@@ -64,6 +64,7 @@ campos desconhecidos são rejeitados no cadastro e na atualização.
 | `GET /api/meals/{id}/curtidas` | `{ "quantidade": 2, "curtidaPorMim": true }` |
 | `POST /api/meals/{id}/comentarios` | 201; comentar, exige `Idempotency-Key`; ver abaixo |
 | `GET /api/meals/{id}/comentarios` | Comentários do mais antigo ao mais novo, por cursor |
+| `DELETE /api/meals/{id}/comentarios/{comentarioId}` | 204; só o autor do comentário ou o dono do post |
 | `GET /api/meals/{id}/link` | `{ "url": "..." }`; própria ou de conta seguida |
 | `GET /api/feed?aba=PARA_VOCE` ou `?aba=SEGUINDO` | Feed do app, sem os próprios posts; ver abaixo |
 | `GET /api/timeline` | Meals próprias e de contas seguidas (fica até o app usar o feed) |
@@ -77,6 +78,10 @@ caracteres, espaços nas pontas removidos) e `Idempotency-Key`. Resposta 201
 texto devolve o mesmo comentário; outro texto com a mesma chave dá 409. `GET` lista do mais antigo
 para o mais novo, com `cursor` e `limite` (1 a 50), no formato `{ "itens", "proximoCursor" }`.
 Meal excluída ou inexistente: 404.
+`DELETE /api/meals/{id}/comentarios/{comentarioId}` responde 204 ao autor do comentário e ao dono do
+post (RN-34); outra conta recebe 403 `acesso_negado`, inclusive depois de excluído. Repetir a
+exclusão devolve 204. Comentário de outro post ou inexistente: 404. O comentário excluído sai da
+lista e fica marcado no banco (`excluido_em`).
 
 **Feed (T19).** `GET /api/feed?aba=PARA_VOCE&cursor=&limite=20`: `PARA_VOCE` traz os posts de todos os
 outros usuários; `SEGUINDO`, só de quem a pessoa segue. **Nenhuma aba traz os próprios posts**, que

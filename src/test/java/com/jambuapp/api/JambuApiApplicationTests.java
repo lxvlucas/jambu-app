@@ -289,6 +289,36 @@ class JambuApiApplicationTests {
     }
 
     @Test
+    void comentarioSoEhExcluidoPeloAutorDeleOuPeloDonoDoPost() throws Exception {
+        // T21 (RN-34, AC13, F7): autor do comentário e dono do post excluem; uma terceira conta não.
+        var dono = conta();
+        var comentarista = conta();
+        var terceira = conta();
+        var post = publicar(dono.id(), "4");
+        var outroPost = publicar(dono.id(), "3");
+        String tokenDono = auth.login(new LoginRequest(dono.username(), SENHA)).token();
+        String tokenComentarista = auth.login(new LoginRequest(comentarista.username(), SENHA)).token();
+        String tokenTerceira = auth.login(new LoginRequest(terceira.username(), SENHA)).token();
+        String base = "/api/meals/" + post.id() + "/comentarios";
+        String c1 = json.readTree(http("POST", base, tokenComentarista, "{\"texto\":\"Primeiro\"}", "x1").body()).path("id").asString();
+        String c2 = json.readTree(http("POST", base, tokenComentarista, "{\"texto\":\"Segundo\"}", "x2").body()).path("id").asString();
+        String c3 = json.readTree(http("POST", base, tokenTerceira, "{\"texto\":\"Terceiro\"}", "x3").body()).path("id").asString();
+        assertThat(http("DELETE", base + "/" + c1, null, null, null).statusCode()).isEqualTo(401);
+        assertThat(http("DELETE", base + "/" + c1, tokenTerceira, null, null).statusCode()).isEqualTo(403);
+        assertThat(http("DELETE", base + "/" + UUID.randomUUID(), tokenDono, null, null).statusCode()).isEqualTo(404);
+        // O comentário precisa ser daquele post.
+        assertThat(http("DELETE", "/api/meals/" + outroPost.id() + "/comentarios/" + c1, tokenDono, null, null).statusCode()).isEqualTo(404);
+        assertThat(http("DELETE", base + "/" + c1, tokenComentarista, null, null).statusCode()).isEqualTo(204);
+        assertThat(http("DELETE", base + "/" + c1, tokenComentarista, null, null).statusCode()).isEqualTo(204);
+        assertThat(http("DELETE", base + "/" + c2, tokenDono, null, null).statusCode()).isEqualTo(204);
+        assertThat(http("DELETE", base + "/" + c1, tokenTerceira, null, null).statusCode()).isEqualTo(403);
+        var lista = json.readTree(http("GET", base, tokenTerceira, null, null).body());
+        assertThat(lista.path("itens")).extracting(i -> i.path("id").asString()).containsExactly(c3);
+        assertThat(jdbc.queryForObject("select count(*) from comentarios where meal_id = ? and excluido_em is not null",
+                Integer.class, post.id())).isEqualTo(2);
+    }
+
+    @Test
     void dataDaRefeicaoNoFuturoERecusadaNaPublicacaoENaEdicao() {
         // AGORA = 19/10/2026 12:00 em São Luís.
         UUID autor = conta().id();
