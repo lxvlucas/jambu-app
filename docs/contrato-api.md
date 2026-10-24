@@ -86,9 +86,9 @@ lista e fica marcado no banco (`excluido_em`).
 **Feed (T19).** `GET /api/feed?aba=PARA_VOCE&cursor=&limite=20`: `PARA_VOCE` traz os posts de todos os
 outros usuários; `SEGUINDO`, só de quem a pessoa segue. **Nenhuma aba traz os próprios posts**, que
 ficam no perfil. Mesma ordem, cursor e limite da timeline. Cada item é
-`{ "meal": { ...Meal... }, "nomeRestaurante": "Coisas do Pará", "curtidas": 2, "curtidaPorMim": true }`,
+`{ "meal": { ...Meal... }, "nomeRestaurante": "Coisas do Pará", "curtidas": 2, "curtidaPorMim": true, "comentarios": 3 }`,
 com o nome vindo do catálogo do Jambu (`null` só nas referências antigas do Google ainda sem nome).
-`curtidas` e `curtidaPorMim` ficam no item, fora da Meal, porque a resposta da publicação é guardada
+`curtidas`, `curtidaPorMim` e `comentarios` (só os ativos) ficam no item, fora da Meal, porque a resposta da publicação é guardada
 para a idempotência e o total muda com o tempo. `SEGUINDO` vazio volta
 `{ "itens": [], "proximoCursor": null }`, e o app mostra "Siga pessoas para ver os posts delas aqui".
 `aba` ausente ou fora das duas: 400 `requisicao_invalida`.

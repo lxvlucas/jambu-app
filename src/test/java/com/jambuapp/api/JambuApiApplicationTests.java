@@ -319,6 +319,23 @@ class JambuApiApplicationTests {
     }
 
     @Test
+    void feedMostraTotalDeComentariosAtivos() throws Exception {
+        // T21: o card do feed traz quantos comentários o post tem; excluído não conta.
+        var leitor = conta();
+        var autor = conta();
+        var post = publicar(autor.id(), "4");
+        var semComentario = publicar(autor.id(), "3");
+        String tokenLeitor = auth.login(new LoginRequest(leitor.username(), SENHA)).token();
+        String base = "/api/meals/" + post.id() + "/comentarios";
+        http("POST", base, tokenLeitor, "{\"texto\":\"Um\"}", "f1");
+        String dois = json.readTree(http("POST", base, tokenLeitor, "{\"texto\":\"Dois\"}", "f2").body()).path("id").asString();
+        assertThat(itemDoFeed(tokenLeitor, post.id()).path("comentarios").asLong()).isEqualTo(2);
+        assertThat(itemDoFeed(tokenLeitor, semComentario.id()).path("comentarios").asLong()).isZero();
+        http("DELETE", base + "/" + dois, tokenLeitor, null, null);
+        assertThat(itemDoFeed(tokenLeitor, post.id()).path("comentarios").asLong()).isEqualTo(1);
+    }
+
+    @Test
     void dataDaRefeicaoNoFuturoERecusadaNaPublicacaoENaEdicao() {
         // AGORA = 19/10/2026 12:00 em São Luís.
         UUID autor = conta().id();
