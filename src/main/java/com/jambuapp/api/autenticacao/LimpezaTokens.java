@@ -18,5 +18,11 @@ public class LimpezaTokens {
         refreshes.limparRespostas(clock.instant());
         // Mantém o histórico de refresh enquanto a sessão ainda pode ser renovada.
         jdbc.update("delete from tokens_acesso where expira_em < ?", java.sql.Timestamp.from(clock.instant().minusSeconds(86400)));
+        // T14 (P-11): o histórico só serve para detectar reuso numa sessão que ainda renova. Encerrada (revogada ou
+        // expirada) há mais de 30 dias, os refresh tokens saem; a sessão continua registrada.
+        jdbc.update("""
+                delete from tokens_renovacao where sessao_id in (
+                    select id from sessoes where least(coalesce(revogada_em, 'infinity'::timestamptz), expira_em) < ?)
+                """, java.sql.Timestamp.from(clock.instant().minus(java.time.Duration.ofDays(30))));
     }
 }

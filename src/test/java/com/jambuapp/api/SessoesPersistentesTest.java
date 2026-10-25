@@ -63,6 +63,39 @@ class SessoesPersistentesTest {
         assertThat(renovar(atual, UUID.randomUUID()).statusCode()).isEqualTo(401);
     }
 
+    @Test void historicoDeRefreshDeSessaoEncerradaSaiTrintaDiasDepoisDoFim() throws Exception {
+        // T14 (P-11, decisão de 25/10): sessão revogada ou expirada perde o histórico de refresh 30 dias depois do
+        // fim; a sessão continua registrada. Sessão ativa mantém o histórico (é ele que detecta o reuso).
+        var revogada = login(); var parada = login(); var ativa = login();
+        String refreshRevogada = revogada.path("refreshToken").asString();
+        assertThat(chamar("POST", "/api/auth/logout", null, Map.of("refreshToken", refreshRevogada)).statusCode()).isEqualTo(204);
+        clock.agora = INICIO.plus(Duration.ofDays(29));
+        String refreshAtiva = json.readTree(renovar(ativa.path("refreshToken").asString(), UUID.randomUUID()).body())
+                .path("refreshToken").asString();
+        limpeza.limpar();
+        assertThat(refreshes(revogada)).isPositive();
+        clock.agora = INICIO.plus(Duration.ofDays(31));
+        limpeza.limpar();
+        assertThat(refreshes(revogada)).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from sessoes where id = ?", Integer.class,
+                UUID.fromString(revogada.path("sessaoId").asString()))).isEqualTo(1);
+        assertThat(renovar(refreshRevogada, UUID.randomUUID()).statusCode()).isEqualTo(401);
+        // A parada expirou por inatividade no dia 30: o histórico só sai no dia 60.
+        assertThat(refreshes(parada)).isPositive();
+        clock.agora = INICIO.plus(Duration.ofDays(58));
+        refreshAtiva = json.readTree(renovar(refreshAtiva, UUID.randomUUID()).body()).path("refreshToken").asString();
+        clock.agora = INICIO.plus(Duration.ofDays(61));
+        limpeza.limpar();
+        assertThat(refreshes(parada)).isZero();
+        assertThat(refreshes(ativa)).isEqualTo(3);
+        assertThat(renovar(refreshAtiva, UUID.randomUUID()).statusCode()).isEqualTo(200);
+    }
+
+    private int refreshes(JsonNode login) {
+        return jdbc.queryForObject("select count(*) from tokens_renovacao where sessao_id = ?", Integer.class,
+                UUID.fromString(login.path("sessaoId").asString()));
+    }
+
     @Test void refreshNaoServeComoBearerEAcessoNaoRenova() throws Exception {
         var login = login();
         assertThat(chamar("GET", "/api/usuarios/me", login.path("refreshToken").asString(), null).statusCode()).isEqualTo(401);
