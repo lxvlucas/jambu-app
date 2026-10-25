@@ -597,6 +597,40 @@ class CatalogoRestaurantesTest {
         assertThat(jdbc.queryForObject("select count(*) from restaurantes where google_place_id = ?", Integer.class, placeId)).isEqualTo(1);
     }
 
+    @Test void bairroSaiDoPinEApareceNaBuscaENoPerfil() {
+        // T07 (RN-45 a RN-47, R28): o bairro é o ponto de bairro do OSM mais próximo do nosso pin (até 2 km);
+        // aparece no resultado da busca e no perfil, e a busca por "nome + bairro" acha o lugar.
+        var criado = cadastros.cadastrar(autor, UUID.randomUUID().toString(), manual("Coisas do Pará Teste", -2.4990, -44.2410, Set.of()));
+        assertThat(criado.restaurante().bairro()).isEqualTo("Cohajap");
+        var busca = service.buscar("coisas do cohajap", null, false, autor);
+        assertThat(busca.locais()).filteredOn(r -> r.id().equals(criado.restaurante().id()))
+                .singleElement().extracting(RestauranteResumo::bairro).isEqualTo("Cohajap");
+        assertThat(service.consultar(criado.restaurante().id()).bairro()).isEqualTo("Cohajap");
+        // Mudou o pin na revisão: o bairro acompanha.
+        var r = restaurantes.findById(criado.restaurante().id()).orElseThrow();
+        revisao.revisar(REVISOR, r.getId(), new RevisaoRestauranteRequest(r.getVersao(), SituacaoRestaurante.ATIVO, "Pin conferido",
+                new RevisaoRestauranteRequest.Correcao("Coisas do Pará Teste", -2.4910, -44.2690, CategoriaRestaurante.RESTAURANTE)));
+        assertThat(service.consultar(r.getId()).bairro()).isEqualTo("Calhau");
+        // Endereço do Overture que cita um bairro perto do pin vale mais que o ponto mais próximo: o pin real do
+        // Outback cai mais perto do ponto da Cohama, mas o endereço diz Maranhão Novo.
+        String outback = UUID.randomUUID().toString();
+        var comEndereco = (tools.jackson.databind.node.ObjectNode) feature(outback, "Outback Teste " + UUID.randomUUID(), 1);
+        ((tools.jackson.databind.node.ObjectNode) comEndereco.path("geometry")).set("coordinates", json.valueToTree(List.of(-44.2444813, -2.5128349)));
+        ((tools.jackson.databind.node.ObjectNode) comEndereco.path("properties")).set("addresses",
+                json.valueToTree(List.of(Map.of("freeform", "Avenida Daniel de La Touche, 987, Piso L2, Maranhão Novo"))));
+        importacao.importar(REVISOR, lote("2026-10-21.0", comEndereco));
+        assertThat(restaurantes.findByOvertureId(outback).orElseThrow().getBairro()).isEqualTo("Maranhão Novo");
+        assertThat(jdbc.queryForObject("select jambu_bairro_do_ponto(-2.5128349, -44.2444813)", String.class)).isEqualTo("Cohama");
+        // Bairro citado no endereço, mas longe do pin (mais de 3 km), não vale: continua o ponto mais próximo.
+        assertThat(jdbc.queryForObject("select jambu_bairro(-2.4910, -44.2690, 'Rua do Coroadinho, 10')", String.class)).isEqualTo("Calhau");
+        // O nome da rua não conta: "Rua Quintas do Calhau" é rua; o bairro vem depois da primeira vírgula.
+        assertThat(jdbc.queryForObject("select jambu_bairro(-2.4908678, -44.26922, 'Rua Quintas do Calhau, 10')", String.class)).isEqualTo("Calhau");
+        assertThat(jdbc.queryForObject("select jambu_bairro(-2.4908678, -44.26922, 'Avenida Litorânea, 25, Quintas do Calhau')", String.class))
+                .isEqualTo("Quintas do Calhau");
+        // Longe de qualquer ponto de bairro, o campo fica vazio em vez de chutar.
+        assertThat(jdbc.queryForObject("select jambu_bairro_do_ponto(-2.0, -44.0)", String.class)).isNull();
+    }
+
     @Test void contratoHttpProtegeCadastroEAdministracao() throws Exception {
         String username = jdbc.queryForObject("select username from usuarios where id = ?", String.class, autor);
         String token = auth.login(new LoginRequest(username, SENHA)).token();

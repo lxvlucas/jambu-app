@@ -83,7 +83,7 @@ public class RestauranteService {
     public void exigirExistente(UUID id) { local.exigirExistente(id); }
     private RestauranteResponse resposta(RestauranteLocalService.DadosLocais dados) {
         var r = dados.restaurante();
-        return new RestauranteResponse(r.id(), r.googlePlaceId(), r.nome(), r.endereco(),
+        return new RestauranteResponse(r.id(), r.googlePlaceId(), r.nome(), r.bairro(), r.endereco(),
                 false, r.origem().name(), linkMaps(r), List.of(), null,
                 dados.notaMedia(), dados.quantidadeAvaliacoes(), r.situacao(), r.latitude(), r.longitude(),
                 r.categoria(), r.overtureId(), r.atribuicaoCatalogo(), r.versao(), dados.ultimaAvaliacaoEm());

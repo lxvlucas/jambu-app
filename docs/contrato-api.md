@@ -158,7 +158,8 @@ ligado, cria o restaurante a partir do Overture escondido (ver [catálogo](catal
 nunca cria restaurante só com o placeId.
 
 A busca local ignora acentos, usa prefixos das palavras, tolera erro de digitação
-(trigramas) e também acha o restaurante pelo nome de pratos já avaliados; nome exato vem
+(trigramas) e também acha o restaurante pelo nome de pratos já avaliados e por "nome + bairro"
+("coisas do cohajap", T07); nome exato vem
 primeiro e verificados (`ATIVO`) antes de provisórios; até 20 sugestões.
 A ampliação só acontece com 3 letras ou mais (`TERMO_CURTO` abaixo disso), é limitada a uma por
 segundo e 30 por dia por usuário (`AGUARDE` e `LIMITE_DIARIO`) e a 300 chamadas/dia para a API
@@ -167,6 +168,12 @@ retângulo da área do catálogo (`locationRestriction`), e o detalhe pede só `
 não é o Bearer. Respostas incluem Cache-Control: no-store; manter atribuições visíveis.
 
 Perfis usam só dados do Jambu e **nunca chamam o Google**, nem com a cota esgotada.
+O campo **`bairro`** (T07), no resumo da busca e no perfil, sai do nosso pin e da base de bairros do
+OpenStreetMap: se o endereço do Overture cita um bairro com ponto a até 3 km do pin, vale esse nome
+(o nome da rua, antes da primeira vírgula, não conta);
+senão, o ponto de bairro mais próximo, até 2 km; mais longe que isso, `null`. O app mostra
+"Nome · Bairro". O banco preenche o bairro sozinho quando o restaurante nasce ou muda de pin ou de
+endereço.
 Referências Google antigas sem nome próprio aparecem com `nome` nulo até a revisão dos
 founders. `dadosExternosDisponiveis` é sempre `false`, `atribuicoes` vem vazia e
 `atribuicaoGoogleMaps` nula (mantidos por compatibilidade). `googleMapsUri` é um link Maps
