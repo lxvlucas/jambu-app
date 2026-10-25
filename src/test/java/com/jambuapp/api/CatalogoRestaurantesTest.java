@@ -654,6 +654,53 @@ class CatalogoRestaurantesTest {
                 """, String.class)).containsExactly("buscas", "dia", "termo");
     }
 
+    @Test void voceEstaAquiListaAteDezEm150MetrosEAmpliaPara500SemGoogle() {
+        // T11 (RF-16, P-08, R17): ponto isolado de outros testes; cada conta cadastra até 5 lugares por dia.
+        double lat = -2.5600, lon = -44.2000;
+        var autores = List.of(autor, conta(), conta(), conta());
+        int[] n = {0};
+        java.util.function.BiFunction<Double, Double, UUID> lugar = (dLat, dLon) -> cadastros.cadastrar(autores.get(n[0]++ / 5),
+                UUID.randomUUID().toString(), manual(UUID.randomUUID().toString(), lat + dLat / 111320, lon + dLon / 111320, Set.of()))
+                .restaurante().id();
+        var maisPerto = lugar.apply(10.0, 0.0);
+        List<UUID> dentro = new ArrayList<>(List.of(maisPerto));
+        for (int i = 1; i <= 10; i++) dentro.add(lugar.apply(0.0, 10.0 + 12 * i));
+        var aDuzentos = lugar.apply(200.0, 0.0);
+        var rejeitado = lugar.apply(5.0, 5.0);
+        jdbc.update("update restaurantes set situacao = 'REJEITADO' where id = ?", rejeitado);
+        var perto = service.proximos(lat, lon);
+        // O lugar onde a pessoa está vem primeiro; até 10, do mais perto ao mais longe, todos em 150 m.
+        assertThat(perto.itens()).hasSize(10);
+        assertThat(perto.itens().getFirst().restaurante().id()).isEqualTo(maisPerto);
+        assertThat(perto.itens().getFirst().distanciaMetros()).isBetween(9L, 11L);
+        assertThat(perto.itens()).extracting(i -> i.restaurante().id()).isSubsetOf(dentro).doesNotContain(aDuzentos, rejeitado);
+        assertThat(perto.itens()).extracting(RestaurantesProximosResponse.Item::distanciaMetros).isSorted().allMatch(d -> d <= 150);
+        // Nada em 150 m: amplia para 500 m; mais longe que isso fica de fora.
+        double lat2 = lat - 0.02;
+        var aTrezentos = cadastros.cadastrar(autores.get(3), UUID.randomUUID().toString(),
+                manual(UUID.randomUUID().toString(), lat2 + 300.0 / 111320, lon, Set.of())).restaurante().id();
+        cadastros.cadastrar(autores.get(3), UUID.randomUUID().toString(), manual(UUID.randomUUID().toString(), lat2 - 600.0 / 111320, lon, Set.of()));
+        assertThat(service.proximos(lat2, lon).itens()).singleElement().satisfies(i -> {
+            assertThat(i.restaurante().id()).isEqualTo(aTrezentos);
+            assertThat(i.distanciaMetros()).isBetween(299L, 301L);
+        });
+        assertThat(service.proximos(-2.0, -44.0).itens()).isEmpty();
+        assertThat(places.chamadas.get()).isZero();
+    }
+
+    @Test void voceEstaAquiPorHttpExigeLoginECoordenadaValida() throws Exception {
+        String token = token(autor);
+        assertThat(http("POST", "/api/restaurantes/proximos", null, "{\"latitude\":-2.5,\"longitude\":-44.2}", null).statusCode()).isEqualTo(401);
+        var invalida = http("POST", "/api/restaurantes/proximos", token, "{\"latitude\":91,\"longitude\":-44.2}", null);
+        assertThat(invalida.statusCode()).isEqualTo(400);
+        assertThat(codigo(invalida)).isEqualTo("dados_invalidos");
+        assertThat(http("POST", "/api/restaurantes/proximos", token, "{\"latitude\":-2.5}", null).statusCode()).isEqualTo(400);
+        var ok = http("POST", "/api/restaurantes/proximos", token, "{\"latitude\":-2.0,\"longitude\":-44.0}", null);
+        assertThat(ok.statusCode()).isEqualTo(200);
+        assertThat(ok.headers().firstValue("Cache-Control")).hasValue("no-store");
+        assertThat(json.readTree(ok.body()).path("itens").isArray()).isTrue();
+    }
+
     @Test void contratoHttpProtegeCadastroEAdministracao() throws Exception {
         String username = jdbc.queryForObject("select username from usuarios where id = ?", String.class, autor);
         String token = auth.login(new LoginRequest(username, SENHA)).token();

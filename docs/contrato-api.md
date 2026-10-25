@@ -46,6 +46,7 @@ campos desconhecidos são rejeitados no cadastro e na atualização.
 | `DELETE /api/moderacao/fotos/{fotoId}` | 204, remoção administrativa com motivo |
 | `GET /api/restaurantes?termo=&tokenSessao=&ampliar=false` | Sugestões locais; amplia automaticamente quando vazio ou explicitamente com ampliar=true; /sugestoes é alias |
 | `POST /api/restaurantes/cadastros` | Cadastro próprio idempotente, confirmação de possíveis duplicatas e placeId opcional |
+| `POST /api/restaurantes/proximos` | "Você está aqui?" (T11): até 10 lugares em 150 m do ponto, ampliando para 500 m; só o banco |
 | `POST /api/restaurantes/selecoes` | Reutiliza referência Google existente (caso a) ou casa com o Overture escondido (caso b, T05); senão 422 cadastro_necessario |
 | `GET /api/moderacao/restaurantes` | Fila paginada de revisão, restrita aos UUIDs configurados |
 | `GET /api/moderacao/restaurantes/retornos` | Fila paginada das correções sugeridas pela 2ª conta, só founders |
@@ -166,6 +167,15 @@ segundo e 30 por dia por usuário (`AGUARDE` e `LIMITE_DIARIO`) e a 300 chamadas
 inteira, incluindo detalhes, no fuso America/Sao_Paulo. O Google só sugere lugares dentro do
 retângulo da área do catálogo (`locationRestriction`), e o detalhe pede só `id,types`. O token de busca
 não é o Bearer. Respostas incluem Cache-Control: no-store; manter atribuições visíveis.
+
+**"Você está aqui?" (T11).** `POST /api/restaurantes/proximos` com
+`{ "latitude": -2.4990, "longitude": -44.2410 }` (localização do celular ou da foto; latitude −90 a 90,
+longitude −180 a 180, ambas obrigatórias, senão 400 `dados_invalidos`). Resposta 200
+`{ "itens": [{ "restaurante": { ...resumo da busca... }, "distanciaMetros": 12 }] }`: até 10 lugares a até
+150 m, do mais perto para o mais longe; sem nenhum em 150 m, até 10 em 500 m; nada em 500 m (ou ponto
+fora da ilha), lista vazia, e o app segue com a busca e "Adicionar". Entram verificados e provisórios;
+rejeitados e escondidos do Overture, não. A localização vai no corpo, e não na URL, para não ficar em
+logs de acesso; a API não a guarda e **nunca chama o Google** aqui.
 
 Perfis usam só dados do Jambu e **nunca chamam o Google**, nem com a cota esgotada.
 O campo **`bairro`** (T07), no resumo da busca e no perfil, sai do nosso pin e da base de bairros do

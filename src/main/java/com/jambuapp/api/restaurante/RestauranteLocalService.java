@@ -28,6 +28,25 @@ public class RestauranteLocalService {
         return restaurantes.buscar(normalizado, normalizado + "%", NomesRestaurantes.consultaPrefixos(normalizado))
                 .stream().map(RestauranteResumo::de).toList();
     }
+    /**
+     * "Você está aqui?" (T11, P-08): até 10 lugares em 150 m do ponto; sem nenhum, amplia para 500 m. Só o banco,
+     * e o ponto não é guardado. O retângulo usa o índice do pin; a distância exata corta o que fica nos cantos.
+     */
+    public RestaurantesProximosResponse proximos(double latitude, double longitude) {
+        double deltaLat = 500 / 111320.0;
+        double deltaLon = deltaLat / Math.cos(Math.toRadians(latitude));
+        var itens = restaurantes.proximos(latitude - deltaLat, latitude + deltaLat, longitude - deltaLon, longitude + deltaLon)
+                .stream()
+                .map(r -> new RestaurantesProximosResponse.Item(RestauranteResumo.de(r),
+                        Math.round(NomesRestaurantes.distancia(latitude, longitude, r.getLatitude(), r.getLongitude()))))
+                .filter(i -> i.distanciaMetros() <= 500)
+                .sorted(Comparator.comparingLong(RestaurantesProximosResponse.Item::distanciaMetros)
+                        .thenComparing(i -> i.restaurante().id()))
+                .toList();
+        boolean algumEm150 = !itens.isEmpty() && itens.getFirst().distanciaMetros() <= 150;
+        return new RestaurantesProximosResponse(itens.stream()
+                .filter(i -> !algumEm150 || i.distanciaMetros() <= 150).limit(10).toList());
+    }
     public void exigirExistente(UUID id) {
         if (!restaurantes.existsById(id)) throw RegraNegocioException.inexistente();
     }

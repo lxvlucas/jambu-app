@@ -84,6 +84,10 @@ public class RestauranteService {
         return resposta(local.consultar(id));
     }
     public void exigirExistente(UUID id) { local.exigirExistente(id); }
+    /** "Você está aqui?" nunca consulta o Google. */
+    public RestaurantesProximosResponse proximos(double latitude, double longitude) {
+        return local.proximos(latitude, longitude);
+    }
     private RestauranteResponse resposta(RestauranteLocalService.DadosLocais dados) {
         var r = dados.restaurante();
         return new RestauranteResponse(r.id(), r.googlePlaceId(), r.nome(), r.bairro(), r.endereco(),
