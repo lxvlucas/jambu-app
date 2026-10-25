@@ -26,7 +26,7 @@ public class FotoService {
     }
 
     public FotoResponse enviarPerfilBytes(UUID autorId, byte[] bytes) {
-        transacional.validarAutorPerfil(autorId);
+        transacional.validarAutor(autorId);
         var imagem = processador.processar(bytes);
         UUID fotoId = UUID.randomUUID();
         String chavePrincipal = chavePrincipal(fotoId);
@@ -45,32 +45,29 @@ public class FotoService {
         return resultado.resposta();
     }
 
-    public FotoResponse enviarDish(UUID autorId, UUID dishId, MultipartFile arquivo) {
-        return enviarDishBytes(autorId, dishId, lerBytes(arquivo));
+    public FotoResponse enviarSolta(UUID autorId, MultipartFile arquivo) {
+        return enviarSoltaBytes(autorId, lerBytes(arquivo));
     }
 
-    public FotoResponse enviarDishBytes(UUID autorId, UUID dishId, byte[] bytes) {
-        transacional.validarAutorEDish(autorId, dishId);
+    public FotoResponse enviarSoltaBytes(UUID autorId, byte[] bytes) {
+        transacional.validarAutor(autorId);
         var imagem = processador.processar(bytes);
         UUID fotoId = UUID.randomUUID();
         String chavePrincipal = chavePrincipal(fotoId);
         String chaveMiniatura = chaveMiniatura(fotoId);
 
         gravarComRollbackEmFalha(chavePrincipal, imagem.principal(), chaveMiniatura, imagem.miniatura());
-        FotoTransacionalService.ResultadoPersistenciaUpload resultado;
         try {
-            resultado = transacional.registrarFotoDish(autorId, dishId, fotoId, chavePrincipal, chaveMiniatura, imagem);
+            return transacional.registrarFotoSolta(autorId, fotoId, chavePrincipal, chaveMiniatura, imagem).resposta();
         } catch (RuntimeException ex) {
             apagarSilenciosamente(chavePrincipal);
             apagarSilenciosamente(chaveMiniatura);
             throw ex;
         }
-        limparSubstituidas(resultado.substituidas());
-        return resultado.resposta();
     }
 
-    public FotoResponse consultarStatus(UUID solicitanteId, String solicitanteUsername, UUID fotoId) {
-        return transacional.consultarStatus(solicitanteId, solicitanteUsername, fotoId);
+    public FotoResponse consultarStatus(UUID solicitanteId, UUID fotoId) {
+        return transacional.consultarStatus(solicitanteId, fotoId);
     }
 
     public byte[] obterConteudoAprovado(UUID fotoId) {
@@ -96,6 +93,7 @@ public class FotoService {
     }
 
     public int limparArquivosExpiradosEOrfaos() {
+        transacional.removerSoltasVencidas();
         int removidos = 0;
         var elegiveis = transacional.listarElegiveisParaLimpeza();
         for (var item : elegiveis) {

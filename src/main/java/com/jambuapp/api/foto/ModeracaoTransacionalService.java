@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 import com.jambuapp.api.comum.*;
+import com.jambuapp.api.foto.FotoTransacionalService.FotoSubstituida;
 import org.springframework.data.domain.Page;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -13,18 +14,18 @@ import tools.jackson.databind.json.JsonMapper;
 @Service
 public class ModeracaoTransacionalService {
     private final FotoRepository fotos;
-    private final FotoDishRepository fotosDish;
+    private final FotoTransacionalService fotosTransacional;
     private final TarefaModeracaoRepository tarefas;
     private final RegistroModeracaoRepository registros;
     private final FotoProperties config;
     private final Clock clock;
     private final JsonMapper json;
 
-    public ModeracaoTransacionalService(FotoRepository fotos, FotoDishRepository fotosDish,
+    public ModeracaoTransacionalService(FotoRepository fotos, FotoTransacionalService fotosTransacional,
             TarefaModeracaoRepository tarefas, RegistroModeracaoRepository registros,
             FotoProperties config, Clock clock, JsonMapper json) {
         this.fotos = fotos;
-        this.fotosDish = fotosDish;
+        this.fotosTransacional = fotosTransacional;
         this.tarefas = tarefas;
         this.registros = registros;
         this.config = config;
@@ -47,14 +48,6 @@ public class ModeracaoTransacionalService {
             return Optional.empty();
         }
         var foto = fotos.buscarParaAtualizacao(tarefa.getFoto().getId()).orElseThrow();
-        if (foto instanceof FotoDish) {
-            var dishOpt = fotosDish.buscarComDishEMeal(foto.getId());
-            if (dishOpt.isEmpty() || !dishOpt.get().vinculoAtivoParaLeitura()) {
-                tarefa.cancelar(agora);
-                if (foto.isAtual()) foto.remover(agora);
-                return Optional.empty();
-            }
-        }
         if (!foto.isAtual()
                 || (foto.getStatus() != StatusModeracaoFoto.PENDENTE && foto.getStatus() != StatusModeracaoFoto.EM_ANALISE)
                 || !foto.getHashConteudo().equals(tarefa.getHashConteudo())) {
@@ -137,9 +130,9 @@ public class ModeracaoTransacionalService {
     }
 
     @Transactional
-    public FotoResponse revisarHumana(UUID revisorId, String revisorUsername, UUID fotoId,
+    public ResultadoRevisao revisarHumana(UUID revisorId, UUID fotoId,
             ResultadoModeracao resultado, String motivo) {
-        exigirModerador(revisorUsername);
+        exigirModerador(revisorId);
         if (resultado == null || resultado == ResultadoModeracao.FALHA_TECNICA)
             throw RegraNegocioException.invalido("Revisão humana exige APROVAR, REJEITAR ou REVISAR.");
         if (motivo == null || motivo.isBlank() || motivo.strip().length() > 500)
@@ -153,14 +146,29 @@ public class ModeracaoTransacionalService {
         foto.aplicarRevisaoHumana(resultado, agora);
         registros.save(RegistroModeracao.humano(
                 foto, resultado, motivo.strip(), config.versaoPolitica(), revisorId, agora));
+        var removidas = resultado == ResultadoModeracao.REJEITAR ? excluirPostReprovado(foto, agora) : List.<FotoSubstituida>of();
         fotos.flush();
-        return FotoResponse.de(foto);
+        return new ResultadoRevisao(FotoResponse.de(foto), removidas);
     }
 
+    /**
+     * T18 (RN-18, decisão de 25/10): founder reprova a foto de um post, e o post inteiro sai (exclusão lógica);
+     * todas as fotos dele ficam REMOVIDA. A foto de perfil ou solta não tem post: nada além dela muda.
+     */
+    private List<FotoSubstituida> excluirPostReprovado(Foto foto, Instant agora) {
+        if (!(foto instanceof FotoMeal fotoMeal) || fotoMeal.getMeal() == null) return List.of();
+        var meal = fotoMeal.getMeal();
+        var removidas = fotosTransacional.encerrarFotosDaMealExcluida(meal);
+        meal.excluir(agora);
+        return removidas;
+    }
+
+    public record ResultadoRevisao(FotoResponse resposta, List<FotoSubstituida> removidas) {}
+
     @Transactional
-    public FotoTransacionalService.FotoSubstituida removerAdministrativamente(UUID revisorId, String revisorUsername,
+    public List<FotoSubstituida> removerAdministrativamente(UUID revisorId,
             UUID fotoId, String motivo) {
-        exigirModerador(revisorUsername);
+        exigirModerador(revisorId);
         if (motivo == null || motivo.isBlank() || motivo.strip().length() > 500)
             throw RegraNegocioException.invalido("Informe um motivo administrativo com até 500 caracteres.");
 
@@ -169,34 +177,38 @@ public class ModeracaoTransacionalService {
         for (TarefaModeracao tarefa : tarefas.buscarAtivasPorFotoParaAtualizacao(fotoId)) {
             tarefa.cancelar(agora);
         }
-        foto.remover(agora);
         registros.save(RegistroModeracao.humano(
                 foto, ResultadoModeracao.REJEITAR, "Remoção administrativa: " + motivo.strip(),
                 config.versaoPolitica(), revisorId, agora));
+        var removidas = excluirPostReprovado(foto, agora);
+        if (removidas.isEmpty()) {
+            foto.remover(agora);
+            removidas = List.of(new FotoSubstituida(foto.getId(), foto.getChaveArquivo(), foto.getChaveMiniatura()));
+        }
         fotos.flush();
-        return new FotoTransacionalService.FotoSubstituida(foto.getId(), foto.getChaveArquivo(), foto.getChaveMiniatura());
+        return removidas;
     }
 
     @Transactional(readOnly = true)
-    public String obterChaveParaInspecaoModerador(String revisorUsername, UUID fotoId) {
-        exigirModerador(revisorUsername);
+    public String obterChaveParaInspecaoModerador(UUID revisorId, UUID fotoId) {
+        exigirModerador(revisorId);
         var foto = fotos.findById(fotoId).orElseThrow(RegraNegocioException::inexistente);
         if (foto.getArquivosLimposEm() != null) throw RegraNegocioException.inexistente();
         return foto.getChaveArquivo();
     }
 
     @Transactional(readOnly = true)
-    public FotoModeracaoAdminResponse consultarDetalheAdmin(String revisorUsername, UUID fotoId) {
-        exigirModerador(revisorUsername);
+    public FotoModeracaoAdminResponse consultarDetalheAdmin(UUID revisorId, UUID fotoId) {
+        exigirModerador(revisorId);
         var foto = fotos.buscarComAutor(fotoId).orElseThrow(RegraNegocioException::inexistente);
         var hist = registros.findByFotoIdOrderByCriadoEmAscIdAsc(fotoId);
         return FotoModeracaoAdminResponse.de(foto, hist);
     }
 
     @Transactional(readOnly = true)
-    public PaginaResponse<FotoModeracaoAdminResponse> listarFilaAdmin(String revisorUsername,
+    public PaginaResponse<FotoModeracaoAdminResponse> listarFilaAdmin(UUID revisorId,
             StatusModeracaoFoto status, int pagina, int limite) {
-        exigirModerador(revisorUsername);
+        exigirModerador(revisorId);
         var pageable = Paginacao.pagina(pagina, limite, "criadaEm");
         Page<Foto> page = status == null
                 ? fotos.findAllByOrderByCriadaEmDescIdDesc(pageable)
@@ -205,8 +217,8 @@ public class ModeracaoTransacionalService {
                 f, registros.findByFotoIdOrderByCriadoEmAscIdAsc(f.getId()))));
     }
 
-    public void exigirModerador(String username) {
-        if (!config.ehModerador(username)) throw RegraNegocioException.proibido();
+    public void exigirModerador(UUID usuarioId) {
+        if (!config.ehModerador(usuarioId)) throw RegraNegocioException.proibido();
     }
 
     private Instant agora() {

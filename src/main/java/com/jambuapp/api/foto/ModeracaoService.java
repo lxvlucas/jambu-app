@@ -76,27 +76,28 @@ public class ModeracaoService {
         return processadas;
     }
 
-    public FotoResponse revisar(UUID revisorId, String revisorUsername, UUID fotoId,
+    public FotoResponse revisar(UUID revisorId, UUID fotoId,
             ResultadoModeracao resultado, String motivo) {
-        return transacional.revisarHumana(revisorId, revisorUsername, fotoId, resultado, motivo);
+        var revisao = transacional.revisarHumana(revisorId, fotoId, resultado, motivo);
+        fotoService.limparSubstituidas(revisao.removidas());
+        return revisao.resposta();
     }
 
-    public void removerAdministrativamente(UUID revisorId, String revisorUsername, UUID fotoId, String motivo) {
-        var removida = transacional.removerAdministrativamente(revisorId, revisorUsername, fotoId, motivo);
-        fotoService.limparSubstituidas(List.of(removida));
+    public void removerAdministrativamente(UUID revisorId, UUID fotoId, String motivo) {
+        fotoService.limparSubstituidas(transacional.removerAdministrativamente(revisorId, fotoId, motivo));
     }
 
-    public byte[] obterConteudoParaModerador(String revisorUsername, UUID fotoId) {
-        String chave = transacional.obterChaveParaInspecaoModerador(revisorUsername, fotoId);
+    public byte[] obterConteudoParaModerador(UUID revisorId, UUID fotoId) {
+        String chave = transacional.obterChaveParaInspecaoModerador(revisorId, fotoId);
         return armazenamento.ler(chave);
     }
 
-    public FotoModeracaoAdminResponse consultarDetalhe(String revisorUsername, UUID fotoId) {
-        return transacional.consultarDetalheAdmin(revisorUsername, fotoId);
+    public FotoModeracaoAdminResponse consultarDetalhe(UUID revisorId, UUID fotoId) {
+        return transacional.consultarDetalheAdmin(revisorId, fotoId);
     }
 
-    public PaginaResponse<FotoModeracaoAdminResponse> listarFila(String revisorUsername,
+    public PaginaResponse<FotoModeracaoAdminResponse> listarFila(UUID revisorId,
             StatusModeracaoFoto status, int pagina, int limite) {
-        return transacional.listarFilaAdmin(revisorUsername, status, pagina, limite);
+        return transacional.listarFilaAdmin(revisorId, status, pagina, limite);
     }
 }

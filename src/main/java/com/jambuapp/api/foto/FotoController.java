@@ -26,19 +26,20 @@ public class FotoController {
                 .body(resposta);
     }
 
+    /** T16: foto do post, enviada quando a pessoa toca em Publicar; vai na Meal pelo `id` em `fotoIds`. */
+    @PostMapping(value = "/api/fotos", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<FotoResponse> enviarSolta(@AuthenticationPrincipal UsuarioAutenticado principal,
+            @RequestParam("arquivo") MultipartFile arquivo) {
+        var resposta = fotos.enviarSolta(principal.usuarioId(), arquivo);
+        return ResponseEntity.created(URI.create("/api/fotos/" + resposta.id()))
+                .cacheControl(CacheControl.noStore())
+                .body(resposta);
+    }
+
     @DeleteMapping("/api/usuarios/me/foto")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void removerPerfilAtual(@AuthenticationPrincipal UsuarioAutenticado principal) {
         fotos.removerFotoPerfilAtual(principal.usuarioId());
-    }
-
-    @PostMapping(value = {"/api/dishes/{dishId}/foto", "/api/fotos/dishes/{dishId}"}, consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<FotoResponse> enviarDish(@AuthenticationPrincipal UsuarioAutenticado principal,
-            @PathVariable UUID dishId, @RequestParam("arquivo") MultipartFile arquivo) {
-        var resposta = fotos.enviarDish(principal.usuarioId(), dishId, arquivo);
-        return ResponseEntity.created(URI.create("/api/fotos/" + resposta.id()))
-                .cacheControl(CacheControl.noStore())
-                .body(resposta);
     }
 
     @GetMapping({"/api/fotos/{fotoId}", "/api/fotos/{fotoId}/status"})
@@ -46,7 +47,7 @@ public class FotoController {
             @PathVariable UUID fotoId) {
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
-                .body(fotos.consultarStatus(principal.usuarioId(), principal.username(), fotoId));
+                .body(fotos.consultarStatus(principal.usuarioId(), fotoId));
     }
 
     @GetMapping("/api/fotos/{fotoId}/conteudo")

@@ -5,7 +5,6 @@ import java.time.Clock;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
-import java.util.stream.Collectors;
 import com.jambuapp.api.comum.*;
 import com.jambuapp.api.foto.*;
 import com.jambuapp.api.usuario.*;
@@ -26,7 +25,6 @@ public class MealService {
     private final MealRepository meals;
     private final PublicacaoIdempotenteRepository idempotencias;
     private final SeguimentoRepository seguimentos;
-    private final FotoDishRepository fotosDish;
     private final FotoTransacionalService fotoTransacional;
     private final FotoService fotoService;
     private final JambuProperties config;
@@ -35,14 +33,13 @@ public class MealService {
     private final Validator validator;
     public MealService(UsuarioRepository usuarios, RestauranteRepository restaurantes, MealRepository meals,
             PublicacaoIdempotenteRepository idempotencias, SeguimentoRepository seguimentos,
-            FotoDishRepository fotosDish, FotoTransacionalService fotoTransacional, FotoService fotoService,
+            FotoTransacionalService fotoTransacional, FotoService fotoService,
             JambuProperties config, Clock clock, JsonMapper json, Validator validator) {
         this.usuarios = usuarios;
         this.restaurantes = restaurantes;
         this.meals = meals;
         this.idempotencias = idempotencias;
         this.seguimentos = seguimentos;
-        this.fotosDish = fotosDish;
         this.fotoTransacional = fotoTransacional;
         this.fotoService = fotoService;
         this.config = config;
@@ -70,7 +67,8 @@ public class MealService {
         var agora = clock.instant().truncatedTo(ChronoUnit.MICROS);
         var data = request.dataRefeicao() == null ? agora.atZone(FUSO).toLocalDate() : request.dataRefeicao();
         var meal = meals.saveAndFlush(new Meal(autor, restaurante, request, agora, data));
-        var resposta = MealResponse.de(meal);
+        var fotos = fotoTransacional.definirFotosDaMeal(autorId, meal, request.fotoIds());
+        var resposta = MealResponse.de(meal, fotos.publicas());
         idempotencias.save(new PublicacaoIdempotente(autor, meal, chave, hash, json.writeValueAsString(resposta), agora));
         return resposta;
     }
@@ -81,28 +79,17 @@ public class MealService {
         var restaurante = restaurantes.buscarParaSelecao(request.restauranteId()).orElseThrow(RegraNegocioException::inexistente);
         // Edição histórica preservada; trocar de restaurante exige um local selecionável.
         if (!meal.getRestaurante().getId().equals(restaurante.getId())) restaurante.exigirSelecionavel();
-        Set<UUID> mantidos = request.dishes().stream().map(DishRequest::id).filter(Objects::nonNull).collect(Collectors.toSet());
-        List<UUID> removidos = meal.getDishes().stream().map(Dish::getId).filter(dId -> !mantidos.contains(dId)).toList();
-        var fotosParaLimpar = fotoTransacional.desassociarFotosDeDishesRemovidos(removidos);
         var data = request.dataRefeicao() == null ? meal.getDataRefeicao() : request.dataRefeicao();
         meal.editar(restaurante, request, clock.instant().truncatedTo(ChronoUnit.MICROS), data);
+        var fotos = fotoTransacional.definirFotosDaMeal(autorId, meal, request.fotoIds());
         meals.flush();
-        agendarLimpezaPosCommit(fotosParaLimpar);
-        List<UUID> dishIdsAtuais = meal.getDishes().stream().map(Dish::getId).toList();
-        Map<UUID, FotoPublicaResponse> fotosAprovadas = new HashMap<>();
-        if (!dishIdsAtuais.isEmpty()) {
-            for (var foto : fotosDish.buscarAprovadasPorDishes(dishIdsAtuais)) {
-                var dto = FotoPublicaResponse.de(foto);
-                if (dto != null && foto.getDishAtivoId() != null) fotosAprovadas.put(foto.getDishAtivoId(), dto);
-            }
-        }
-        return MealResponse.de(meal, fotosAprovadas);
+        agendarLimpezaPosCommit(fotos.removidas());
+        return MealResponse.de(meal, fotos.publicas());
     }
     @Transactional
     public void excluir(UUID autorId, UUID id) {
         var meal = propria(autorId, id);
-        List<UUID> dishIds = meal.getDishes().stream().map(Dish::getId).toList();
-        var fotosParaLimpar = fotoTransacional.encerrarFotosDeDishesDaMealExcluida(dishIds);
+        var fotosParaLimpar = fotoTransacional.encerrarFotosDaMealExcluida(meal);
         meal.excluir(clock.instant());
         meals.flush();
         agendarLimpezaPosCommit(fotosParaLimpar);
@@ -138,6 +125,8 @@ public class MealService {
         if (request == null || !validator.validate(request).isEmpty())
             throw RegraNegocioException.invalido("Dados da Meal inválidos.");
         if (request.dishes().size() > config.limiteDishes()) throw RegraNegocioException.invalido("Quantidade de Dishes excede o limite.");
+        if (new HashSet<>(request.fotoIds()).size() != request.fotoIds().size())
+            throw RegraNegocioException.invalido("A mesma foto não pode entrar duas vezes no post.");
         if (request.review() != null && request.review().length() > config.limiteReview())
             throw RegraNegocioException.invalido("Review excede o limite de caracteres.");
         request.dishes().forEach(d -> Dish.validarNota(d.nota()));
@@ -147,6 +136,6 @@ public class MealService {
         return new MealRequest(request.restauranteId(), request.dishes().stream()
                 .map(d -> new DishRequest(d.id(), d.nome().strip(), d.nota().setScale(1), d.comeriaNovamente(),
                         d.preco() == null ? null : d.preco().setScale(2, java.math.RoundingMode.HALF_UP))).toList(),
-                review, request.comeriaNovamente(), request.modalidade(), request.dataRefeicao(), request.versao());
+                request.fotoIds(), review, request.comeriaNovamente(), request.modalidade(), request.dataRefeicao(), request.versao());
     }
 }

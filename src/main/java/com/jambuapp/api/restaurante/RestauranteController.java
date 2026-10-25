@@ -28,6 +28,10 @@ public class RestauranteController {
             @RequestHeader("Idempotency-Key") String chave, @Valid @RequestBody CadastroRestauranteRequest request) {
         return semCache(cadastros.cadastrar(principal.usuarioId(), chave, request));
     }
+    @PostMapping("/proximos")
+    public ResponseEntity<RestaurantesProximosResponse> proximos(@Valid @RequestBody RestaurantesProximosRequest request) {
+        return semCache(restaurantes.proximos(request.latitude(), request.longitude()));
+    }
     @PostMapping("/selecoes")
     public ResponseEntity<RestauranteResponse> selecionar(@Valid @RequestBody SelecionarRestauranteRequest request) {
         return semCache(restaurantes.selecionar(request));

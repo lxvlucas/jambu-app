@@ -37,7 +37,7 @@ class GooglePlacesAdapterTest {
     CotaPlacesService cota = mock(CotaPlacesService.class);
     // Mesma área padrão da API: a ilha de São Luís (geografia/grande-sao-luis.geojson).
     com.jambuapp.api.restaurante.AreaCatalogo area = new com.jambuapp.api.restaurante.AreaCatalogo(json,
-            new com.jambuapp.api.restaurante.CatalogoProperties(300, 300, 0.45, Set.of(), java.util.List.of("grande-sao-luis"), 5, 30));
+            new com.jambuapp.api.restaurante.CatalogoProperties(300, 300, 0.45, Set.of(), java.util.List.of("grande-sao-luis"), 5, 30, true, 3));
 
     @BeforeEach
     void iniciar() throws Exception {
@@ -95,6 +95,25 @@ class GooglePlacesAdapterTest {
         assertThat(retangulo.path("high").path("latitude").asDouble()).isBetween(-2.45, -2.30);
         assertThat(retangulo.path("low").path("longitude").asDouble()).isBetween(-44.45, -44.30);
         assertThat(retangulo.path("high").path("longitude").asDouble()).isBetween(-44.05, -43.90);
+    }
+    @Test
+    void buscaSoDeIdsUsaNossoNomeENossoPontoSemGastarCota() {
+        // T05: Text Search "IDs Only" (gratuita): só places.id, com o nome e o pin do Jambu, sem reservar a cota paga.
+        resposta = "{\"places\":[{\"id\":\"ChIJ_um\"},{\"id\":\"ChIJ_dois\"}]}";
+        assertThat(adapter.buscarIds("Bar do Felipe", -2.4831, -44.2451)).containsExactly("ChIJ_um", "ChIJ_dois");
+        assertThat(metodo).isEqualTo("POST");
+        assertThat(uri.toString()).isEqualTo("/v1/places:searchText");
+        assertThat(mascara).isEqualTo("places.id");
+        var body = json.readTree(corpo);
+        assertThat(body.path("textQuery").asString()).isEqualTo("Bar do Felipe");
+        var circulo = body.path("locationBias").path("circle");
+        assertThat(circulo.path("center").path("latitude").asDouble()).isEqualTo(-2.4831);
+        assertThat(circulo.path("center").path("longitude").asDouble()).isEqualTo(-44.2451);
+        assertThat(circulo.path("radius").asDouble()).isEqualTo(200);
+        assertThat(body.path("pageSize").asInt()).isEqualTo(5);
+        org.mockito.Mockito.verify(cota, org.mockito.Mockito.never()).reservar();
+        resposta = "{}";
+        assertThat(adapter.buscarIds("Bar do Felipe", -2.4831, -44.2451)).isEmpty();
     }
     @Test
     void detailsUsaGetTokenAtribuicoesESomenteDadosPermitidos() {
@@ -172,6 +191,26 @@ class GooglePlacesAdapterTest {
         assertThatThrownBy(() -> adapter.consultar("ChIJ_teste", null)).isInstanceOf(PlacesException.class);
         verify(cota).reservar();
         assertThat(uri).isNotNull();
+    }
+    @Test
+    void aquecimentoAbreConexaoSemChaveSemCotaENuncaFalha() {
+        // A 1ª chamada depois de subir gastava 2 a 3 s dos 3 s do timeout (JVM e TLS frios); o aquecimento paga isso
+        // ao subir, sem chave: o Google responde 403 e não cobra.
+        status = 403;
+        adapter.aquecerConexao().join();
+        assertThat(metodo).isEqualTo("POST");
+        assertThat(uri.toString()).isEqualTo("/v1/places:autocomplete");
+        assertThat(chave).isNull();
+        verify(cota, never()).reservar();
+        // Provedor fora do ar ou lento não derruba nem atrasa a subida.
+        servidor.stop(0);
+        assertThatCode(() -> adapter.aquecerConexao().join()).doesNotThrowAnyException();
+    }
+    @Test
+    void aquecimentoNaoDisparaHttpComPlacesDesligadoOuSemChave() {
+        new GooglePlacesAdapter(config(false, "chave-ficticia", Duration.ofSeconds(1)), json, cota, area).aquecerConexao().join();
+        new GooglePlacesAdapter(config(true, "", Duration.ofSeconds(1)), json, cota, area).aquecerConexao().join();
+        assertThat(uri).isNull();
     }
     private PlacesProperties config(boolean habilitado, String key, Duration timeout) {
         return new PlacesProperties(habilitado, key, URI.create("http://127.0.0.1:" + servidor.getAddress().getPort() + "/v1/"), timeout, Set.of("restaurant", "cafe"));

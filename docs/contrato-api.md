@@ -33,20 +33,21 @@ campos desconhecidos são rejeitados no cadastro e na atualização.
 | `GET /api/usuarios/{id}/meals` | Meals ativas, por cursor |
 | `POST /api/usuarios/me/foto` | 201, multipart `arquivo`; envia/substitui foto 3:4 de perfil (`PENDENTE`) |
 | `DELETE /api/usuarios/me/foto` | 204, remove foto de perfil atual |
-| `POST /api/dishes/{dishId}/foto` | 201, multipart `arquivo`; envia/substitui foto 3:4 do Dish (`PENDENTE`) |
+| `POST /api/fotos` | 201, multipart `arquivo`; foto do post (T16), solta até entrar numa Meal por `fotoIds`; some em 24 h se não for usada |
 | `GET /api/fotos/{fotoId}` | Estado da foto (apenas autor ou moderador) |
 | `GET /api/fotos/{fotoId}/conteudo` | Binário `image/jpeg` da foto aprovada (`404` se não aprovada) |
 | `GET /api/fotos/{fotoId}/miniatura` | Binário `image/jpeg` 360×480 da foto aprovada (`404` se não aprovada) |
 | `POST /api/fotos/{fotoId}/contestacao` | Autor contesta foto `REJEITADA`, encaminhando para `EM_REVISAO` |
 | `DELETE /api/fotos/{fotoId}` | 204, autor remove a própria foto |
-| `GET /api/moderacao/fotos` | Lista paginada de fotos para moderadores configurados |
+| `GET /api/moderacao/fotos` | Lista paginada de fotos para moderadores configurados (UUIDs em `JAMBU_MODERADORES_FOTOS`; o nome de usuário não conta) |
 | `GET /api/moderacao/fotos/{fotoId}` | Detalhe administrativo e histórico `registros_moderacao` |
 | `GET /api/moderacao/fotos/{fotoId}/conteudo` | Binário para inspeção do moderador |
 | `POST /api/moderacao/fotos/{fotoId}/revisao` | Decisão humana (`APROVAR`, `REJEITAR`, `REVISAR`) com motivo e auditoria |
 | `DELETE /api/moderacao/fotos/{fotoId}` | 204, remoção administrativa com motivo |
 | `GET /api/restaurantes?termo=&tokenSessao=&ampliar=false` | Sugestões locais; amplia automaticamente quando vazio ou explicitamente com ampliar=true; /sugestoes é alias |
 | `POST /api/restaurantes/cadastros` | Cadastro próprio idempotente, confirmação de possíveis duplicatas e placeId opcional |
-| `POST /api/restaurantes/selecoes` | Reutiliza referência Google existente; novo ID retorna 422 cadastro_necessario |
+| `POST /api/restaurantes/proximos` | "Você está aqui?" (T11): até 10 lugares em 150 m do ponto, ampliando para 500 m; só o banco |
+| `POST /api/restaurantes/selecoes` | Reutiliza referência Google existente (caso a) ou casa com o Overture escondido (caso b, T05); senão 422 cadastro_necessario |
 | `GET /api/moderacao/restaurantes` | Fila paginada de revisão, restrita aos UUIDs configurados |
 | `GET /api/moderacao/restaurantes/retornos` | Fila paginada das correções sugeridas pela 2ª conta, só founders |
 | `POST /api/moderacao/restaurantes/{id}/revisao` | Revisão/correção com versão e auditoria; resolve as correções sugeridas do lugar |
@@ -152,11 +153,14 @@ a mesma chave com os UUIDs recusados em distintosConfirmados. Os cadastros novos
 ficam PROVISORIO e já aceitam Meal. Conteúdo próprio não deve ser copiado do Google.
 
 Quando houver seleção externa, informar placeId e token para validar/vincular;
-somente o ID validado é persistido. /selecoes mantém compatibilidade para referências
-Google já existentes; não cria mais restaurante apenas com placeId.
+somente o ID validado é persistido. `/selecoes` (`{ "googlePlaceId", "tokenSessao", "textoBusca" }`,
+`textoBusca` opcional, até 100 caracteres) reutiliza referências Google já existentes e, com o casamento
+ligado, cria o restaurante a partir do Overture escondido (ver [catálogo](catalogo-restaurantes.md));
+nunca cria restaurante só com o placeId.
 
 A busca local ignora acentos, usa prefixos das palavras, tolera erro de digitação
-(trigramas) e também acha o restaurante pelo nome de pratos já avaliados; nome exato vem
+(trigramas) e também acha o restaurante pelo nome de pratos já avaliados e por "nome + bairro"
+("coisas do cohajap", T07); nome exato vem
 primeiro e verificados (`ATIVO`) antes de provisórios; até 20 sugestões.
 A ampliação só acontece com 3 letras ou mais (`TERMO_CURTO` abaixo disso), é limitada a uma por
 segundo e 30 por dia por usuário (`AGUARDE` e `LIMITE_DIARIO`) e a 300 chamadas/dia para a API
@@ -164,7 +168,22 @@ inteira, incluindo detalhes, no fuso America/Sao_Paulo. O Google só sugere luga
 retângulo da área do catálogo (`locationRestriction`), e o detalhe pede só `id,types`. O token de busca
 não é o Bearer. Respostas incluem Cache-Control: no-store; manter atribuições visíveis.
 
+**"Você está aqui?" (T11).** `POST /api/restaurantes/proximos` com
+`{ "latitude": -2.4990, "longitude": -44.2410 }` (localização do celular ou da foto; latitude −90 a 90,
+longitude −180 a 180, ambas obrigatórias, senão 400 `dados_invalidos`). Resposta 200
+`{ "itens": [{ "restaurante": { ...resumo da busca... }, "distanciaMetros": 12 }] }`: até 10 lugares a até
+150 m, do mais perto para o mais longe; sem nenhum em 150 m, até 10 em 500 m; nada em 500 m (ou ponto
+fora da ilha), lista vazia, e o app segue com a busca e "Adicionar". Entram verificados e provisórios;
+rejeitados e escondidos do Overture, não. A localização vai no corpo, e não na URL, para não ficar em
+logs de acesso; a API não a guarda e **nunca chama o Google** aqui.
+
 Perfis usam só dados do Jambu e **nunca chamam o Google**, nem com a cota esgotada.
+O campo **`bairro`** (T07), no resumo da busca e no perfil, sai do nosso pin e da base de bairros do
+OpenStreetMap: se o endereço do Overture cita um bairro com ponto a até 3 km do pin, vale esse nome
+(o nome da rua, antes da primeira vírgula, não conta);
+senão, o ponto de bairro mais próximo, até 2 km; mais longe que isso, `null`. O app mostra
+"Nome · Bairro". O banco preenche o bairro sozinho quando o restaurante nasce ou muda de pin ou de
+endereço.
 Referências Google antigas sem nome próprio aparecem com `nome` nulo até a revisão dos
 founders. `dadosExternosDisponiveis` é sempre `false`, `atribuicoes` vem vazia e
 `atribuicaoGoogleMaps` nula (mantidos por compatibilidade). `googleMapsUri` é um link Maps
@@ -213,6 +232,7 @@ envio após falha de rede; use chave nova para uma nova publicação.
     { "nome": "Arroz de cuxá", "nota": 4.5, "comeriaNovamente": true, "preco": 32.50 },
     { "nome": "Peixe", "nota": 5 }
   ],
+  "fotoIds": ["UUID_DA_FOTO_CAPA", "UUID_DA_SEGUNDA_FOTO"],
   "review": "Refeição de teste.",
   "comeriaNovamente": true,
   "modalidade": "PRESENCIAL",
@@ -230,9 +250,17 @@ por padrão; nomes até 150 caracteres; notas de 0,5 a 5 em passos de 0,5.
 Review até 2.000 caracteres por padrão. Não enviar `autorId`, `notaOverall`,
 instantes de auditoria, versão ou IDs de Dishes na criação.
 
+**`fotoIds` (T16) é obrigatório:** de 1 a 10 fotos enviadas antes por `POST /api/fotos`, sem repetir, na
+ordem de exibição (a 1ª é a capa). Cada foto tem de ser da própria pessoa, estar solta (enviada há menos
+de 24 h e ainda sem post) e não ter sido rejeitada. Qualquer foto fora disso (de outra conta, já usada,
+vencida, rejeitada ou inexistente) dá 400 `dados_invalidos` com a mesma mensagem, para não revelar se a
+foto de outra pessoa existe; nada é publicado. Duas publicações simultâneas com a mesma foto: só uma leva.
+
 A resposta inclui id, resumo do autor, referência do restaurante `{ "id": "UUID", "googlePlaceId": "..." }`, Dishes com IDs,
-notaOverall com duas casas, review, comeriaNovamente, modalidade, dataRefeicao,
-publicadaEm, editadaEm e versao. Não inclui contato, hash ou entidade JPA.
+`fotos` (as aprovadas, na ordem do post: `[{ "id", "url", "urlMiniatura" }]`; vazia enquanto nenhuma foi
+aprovada), notaOverall com duas casas, review, comeriaNovamente, modalidade, dataRefeicao,
+publicadaEm, editadaEm e versao. Não inclui contato, hash ou entidade JPA. Desde a T16 os dishes não têm
+mais `foto`: a foto é do post, e a marcação de quais dishes aparecem em cada foto vem na T17.
 
 Repetição equivalente retorna 201 e o snapshot original, mesmo depois de edição
 ou exclusão. Mesma chave com conteúdo diferente retorna 409. A comparação normaliza
@@ -249,6 +277,12 @@ Envie para `PUT` o estado completo dos Dishes, com `versao` recebida na consulta
 Mantenha IDs de pratos existentes; novos pratos não têm ID; pratos omitidos são
 removidos. Todos os IDs informados devem pertencer à Meal e não se repetir. O último
 Dish não pode ser removido. A ordem enviada é persistida.
+
+A edição também manda `fotoIds` (1 a 10): as fotos que o post já tem e, se quiser, fotos soltas novas, na
+ordem desejada. Dá para reordenar e trocar a capa; a foto do post que sai da lista é removida, com os
+arquivos. Foto de outro post ou fora das regras da publicação: 400 `dados_invalidos`. `DELETE
+/api/fotos/{id}` de uma foto que está num post dá 409 `conflito`: ela sai pela edição. Excluir o post
+remove todas as fotos dele.
 
 Versão ausente/desatualizada retorna 409. A edição avança a versão mesmo quando só
 um Dish muda. Data omitida na edição preserva a data existente; review/modalidade
@@ -286,9 +320,22 @@ A imagem principal é reduzida até `1080 × 1440 px` (sem ampliar menores), ree
 JPEG/sRGB sem metadados EXIF/GPS (teto de 1 MiB, qualidades 85%→70%), junto de miniatura
 `360 × 480 px` (teto de 200 KiB, qualidades 80%→70%).
 
-Toda foto nasce `PENDENTE` com tarefa persistente em `tarefas_moderacao` vinculada ao
+**Moderação desligada (padrão do MVP, `JAMBU_FOTOS_MODERACAO_HABILITADA=false`; T18):** toda foto, do post
+e de perfil, nasce `APROVADA` e aparece para todos na hora, sem tarefa de análise; `registros_moderacao`
+guarda "publicada na hora". A moderação é reativa: quando um moderador reprova a foto de um post (revisão
+`REJEITAR` ou `DELETE /api/moderacao/fotos/{id}`), **o post inteiro é excluído** (some do feed, dos perfis e
+das médias; `GET /api/meals/{id}` dá 404) e todas as fotos dele ficam `REMOVIDA`, com os arquivos apagados;
+não há contestação. Reprovar a foto de perfil só tira a foto. A reprovação automática (moderação ligada)
+só esconde a foto, sem excluir o post.
+
+Com a moderação ligada, toda foto nasce `PENDENTE` com tarefa persistente em `tarefas_moderacao` vinculada ao
 `hash_conteudo` (SHA-256 do JPEG normalizado) e `versao_politica`. Somente `APROVADA`
-aparece em `PerfilResponse.foto` e `DishResponse.foto` (`{ "id": "...", "url": "/api/fotos/.../conteudo", "urlMiniatura": "/api/fotos/.../miniatura" }`)
+aparece em `PerfilResponse.foto` e em `MealResponse.fotos` (`{ "id": "...", "url": "/api/fotos/.../conteudo", "urlMiniatura": "/api/fotos/.../miniatura" }`)
 e libera `/conteudo` e `/miniatura`. Substituir foto cria novo registro/arquivo e invalida
 a versão anterior. Falhas técnicas do provedor de moderação nunca aprovam fotos: aplicam
 retentativa com backoff e, ao atingir o limite de tentativas, encaminham para `EM_REVISAO`.
+
+**Foto do post (T16).** O app envia cada foto com `POST /api/fotos` quando a pessoa toca em Publicar (o
+rascunho guarda as fotos no aparelho) e recebe o `id`. Até entrar numa Meal, a foto fica **solta**: só o
+autor consulta o estado em `/api/fotos/{id}`, `/conteudo` e `/miniatura` dão 404, e ela passa pela mesma
+moderação. Foto solta com mais de 24 h é removida, com os arquivos, pelo agendador da limpeza.

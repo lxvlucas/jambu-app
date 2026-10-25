@@ -6,7 +6,9 @@ import java.util.concurrent.*;
 import com.jambuapp.api.comum.RegraNegocioException;
 import com.jambuapp.api.restaurante.AreaCatalogo;
 import com.jambuapp.api.restaurante.CotaPlacesService;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.event.EventListener;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -30,6 +32,18 @@ public class GooglePlacesAdapter implements ProvedorRestaurantes {
         this.cota = cota;
         this.area = area;
         this.http = HttpClient.newBuilder().connectTimeout(config.timeout()).followRedirects(HttpClient.Redirect.NEVER).build();
+    }
+    /**
+     * A 1ª chamada depois de subir gastava 2 a 3 s dos 3 s do timeout (JVM e TLS frios). Abre a conexão ao subir,
+     * em segundo plano e sem chave: o Google responde 403, não cobra e nenhum segredo sai do servidor.
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void aquecer() { aquecerConexao(); }
+    CompletableFuture<?> aquecerConexao() {
+        if (!config.habilitado() || config.apiKey().isBlank()) return CompletableFuture.completedFuture(null);
+        var request = HttpRequest.newBuilder(config.baseUrl().resolve("./places:autocomplete")).timeout(config.timeout())
+                .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString("{}")).build();
+        return http.sendAsync(request, HttpResponse.BodyHandlers.discarding()).exceptionally(ex -> null);
     }
     @Override
     public List<SugestaoLugar> sugerir(String termo, UUID tokenSessao) {
@@ -67,10 +81,26 @@ public class GooglePlacesAdapter implements ProvedorRestaurantes {
         // Só serve para conferir se é lugar de comida; nada daqui é guardado além do place_id.
         return new DadosLugar(placeId, tipos(node));
     }
+    @Override
+    public List<String> buscarIds(String nome, double latitude, double longitude) {
+        var corpo = Map.of("textQuery", nome, "languageCode", "pt-BR", "regionCode", "BR", "pageSize", 5,
+                "locationBias", Map.of("circle", Map.of("center", Map.of("latitude", latitude, "longitude", longitude), "radius", 200)));
+        // Text Search "IDs Only" (SKU Essentials IDs Only) é gratuita: não reserva a cota paga.
+        var node = executar("places:searchText", "places.id", json.writeValueAsString(corpo), false);
+        List<String> ids = new ArrayList<>();
+        for (var lugar : node.path("places")) {
+            String id = texto(lugar, "id");
+            if (id != null && id.matches("[A-Za-z0-9_-]{1,1024}")) ids.add(id);
+        }
+        return List.copyOf(ids);
+    }
     public static void validarPlaceId(String id) {
         if (id == null || !id.matches("[A-Za-z0-9_-]{1,1024}")) throw RegraNegocioException.invalido("googlePlaceId inválido.");
     }
     private JsonNode executar(String caminho, String mascara, String corpo) {
+        return executar(caminho, mascara, corpo, true);
+    }
+    private JsonNode executar(String caminho, String mascara, String corpo, boolean cobrar) {
         if (TransactionSynchronizationManager.isActualTransactionActive())
             throw new IllegalStateException("Chamada Places não pode ocorrer dentro de transação de banco.");
         if (!config.habilitado() || config.apiKey().isBlank())
@@ -80,7 +110,7 @@ public class GooglePlacesAdapter implements ProvedorRestaurantes {
                 .header("X-Goog-Api-Key", config.apiKey()).header("X-Goog-FieldMask", mascara)
                 .header("Content-Type", "application/json");
         if (corpo == null) request.GET(); else request.POST(HttpRequest.BodyPublishers.ofString(corpo));
-        cota.reservar();
+        if (cobrar) cota.reservar();
         var futuro = http.sendAsync(request.build(), HttpResponse.BodyHandlers.ofString());
         HttpResponse<String> resposta;
         try { resposta = futuro.get(config.timeout().toMillis(), TimeUnit.MILLISECONDS); }

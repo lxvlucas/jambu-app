@@ -91,6 +91,8 @@ Durante 30 segundos, a mesma operação pode recuperar a mesma resposta, desde q
 sucessor ainda não tenha sido consumido. A resposta temporária fica cifrada com
 AES-256-GCM, IV aleatório e vínculo ao token/operação. A limpeza remove o texto
 cifrado vencido a cada cinco segundos; hashes/histórico continuam para detectar replay.
+Quando a sessão termina (revogada ou expirada), o histórico de refresh dela é apagado 30 dias depois do
+fim (T14, P-11); a sessão continua registrada, e um refresh antigo continua dando 401.
 
 Outro UUID usando o token consumido nessa janela recebe 409 `renovacao_concorrente`,
 sem novas credenciais e sem revogação imediata. O cliente aguarda o resultado da

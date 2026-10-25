@@ -153,7 +153,7 @@ consumindo os contratos da API, e depois concluir integração e hospedagem inte
   - [x] Configurar armazenamento privado; guardar no banco a referência do arquivo, não os bytes da foto.
   - [x] Validar conteúdo real, formato, tamanho e dimensões da imagem; tratar metadados de localização antes de disponibilizá-la.
   - [x] Autorizar upload somente para o próprio perfil ou Dish de uma Meal própria.
-  - [x] Permitir uma foto atual por Dish e uma foto de perfil; substituir cria um novo arquivo/registro para nova análise.
+  - [x] Permitir uma foto atual por Dish e uma foto de perfil; substituir cria um novo arquivo/registro para nova análise. **Substituído na T16 (25/10):** a foto é do post (1 a 10, a 1ª é a capa), e a foto por Dish saiu; ver `contrato-api.md`.
   - [x] Criar a foto como PENDENTE; impedir leitura pública por qualquer caminho antes de APROVADA.
   - [x] Integrar somente fotos aprovadas às respostas de perfil, Dish e timeline.
   - [x] Definir remoção e limpeza de arquivos abandonados/substituídos, respeitando a retenção escolhida.

@@ -45,7 +45,6 @@ public class Dish {
     }
     void desassociar() { this.meal = null; }
     void ordenar(int ordem) { this.ordem = ordem; }
-    public boolean estaAtivoParaLeitura() { return meal != null && meal.getExcluidaEm() == null; }
     public Meal getMeal() { return meal; }
     public UUID getId() { return id; }
     public String getNome() { return nome; }

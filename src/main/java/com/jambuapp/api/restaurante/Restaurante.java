@@ -13,6 +13,9 @@ public class Restaurante {
     @Column(length = 150) private String nome;
     @Column(length = 150) private String nomeNormalizado;
     @Column(length = 300) private String endereco;
+    /** Preenchido pelo banco (trigger da V15) a partir do pin; nunca escrito pelo código (T07). */
+    @org.hibernate.annotations.Generated(event = { org.hibernate.generator.EventType.INSERT, org.hibernate.generator.EventType.UPDATE })
+    @Column(length = 100, insertable = false, updatable = false) private String bairro;
     @Column(unique = true, length = 1024) private String googlePlaceId;
     private Instant placesValidadoEm;
     @Enumerated(EnumType.STRING) @Column(length = 20, nullable = false)
@@ -98,6 +101,7 @@ public class Restaurante {
     public String getNome() { return nome; }
     public String getNomeNormalizado() { return nomeNormalizado; }
     public String getEndereco() { return endereco; }
+    public String getBairro() { return bairro; }
     public String getGooglePlaceId() { return googlePlaceId; }
     public OrigemRestaurante getOrigem() { return origem; }
     public SituacaoRestaurante getSituacao() { return situacao; }

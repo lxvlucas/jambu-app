@@ -14,7 +14,14 @@ public class RestauranteService {
     private final RestauranteLocalService local;
     private final ProvedorRestaurantes places;
     private final CotaPlacesService cota;
-    public RestauranteService(RestauranteLocalService local, ProvedorRestaurantes places, CotaPlacesService cota) {
+    private final CasamentoOvertureService casamento;
+    private final CatalogoProperties config;
+    private final BuscasSemResultadoService semResultado;
+    public RestauranteService(RestauranteLocalService local, ProvedorRestaurantes places, CotaPlacesService cota,
+            CasamentoOvertureService casamento, CatalogoProperties config, BuscasSemResultadoService semResultado) {
+        this.casamento = casamento;
+        this.config = config;
+        this.semResultado = semResultado;
         this.local = local; this.places = places; this.cota = cota;
     }
     public SugestoesRestaurantesResponse buscar(String termo, UUID tokenSessao) {
@@ -26,6 +33,7 @@ public class RestauranteService {
             throw RegraNegocioException.invalido("Informe termo de 2 a 100 caracteres.");
         UUID sessao = tokenSessao == null ? UUID.randomUUID() : tokenSessao;
         var locais = local.buscar(termo);
+        if (locais.isEmpty()) semResultado.registrar(termo);
         if (!locais.isEmpty() && !ampliar)
             return new SugestoesRestaurantesResponse(locais, List.of(), "NAO_SOLICITADO", true, true, sessao, null);
         // O Google só é consultado a partir de 3 letras; a busca local já roda com 2.
@@ -50,20 +58,39 @@ public class RestauranteService {
     /** Compatibilidade: referências Google já existentes são reutilizadas sem HTTP. */
     public RestauranteResponse selecionar(SelecionarRestauranteRequest request) {
         GooglePlacesAdapter.validarPlaceId(request.googlePlaceId());
-        var id = local.porGoogle(request.googlePlaceId()).orElseThrow(() ->
+        var id = local.porGoogle(request.googlePlaceId()).or(() -> casar(request)).orElseThrow(() ->
                 new RegraNegocioException(HttpStatus.UNPROCESSABLE_CONTENT, "cadastro_necessario",
                         "Informe nome, pin e categoria próprios em POST /api/restaurantes/cadastros."));
         local.exigirSelecionavel(id);
         return resposta(local.consultar(id));
+    }
+    /**
+     * Caso (b) da RN-50 (T05): para cada escondido parecido com o texto digitado, pergunta ao Google, com o nosso
+     * nome e o nosso ponto, se o lugar é o escolhido. Google fora do ar não impede o fluxo: vira caso (c).
+     */
+    private Optional<UUID> casar(SelecionarRestauranteRequest request) {
+        if (!config.casamentoOverture() || request.textoBusca() == null) return Optional.empty();
+        try {
+            for (var c : casamento.candidatos(request.textoBusca()))
+                if (places.buscarIds(c.nome(), c.latitude(), c.longitude()).contains(request.googlePlaceId()))
+                    return casamento.criar(c.overtureId(), request.googlePlaceId());
+        } catch (PlacesException ex) {
+            return Optional.empty();
+        }
+        return Optional.empty();
     }
     /** O perfil nunca consulta o Google: a cota só afeta achar lugares novos. */
     public RestauranteResponse consultar(UUID id) {
         return resposta(local.consultar(id));
     }
     public void exigirExistente(UUID id) { local.exigirExistente(id); }
+    /** "Você está aqui?" nunca consulta o Google. */
+    public RestaurantesProximosResponse proximos(double latitude, double longitude) {
+        return local.proximos(latitude, longitude);
+    }
     private RestauranteResponse resposta(RestauranteLocalService.DadosLocais dados) {
         var r = dados.restaurante();
-        return new RestauranteResponse(r.id(), r.googlePlaceId(), r.nome(), r.endereco(),
+        return new RestauranteResponse(r.id(), r.googlePlaceId(), r.nome(), r.bairro(), r.endereco(),
                 false, r.origem().name(), linkMaps(r), List.of(), null,
                 dados.notaMedia(), dados.quantidadeAvaliacoes(), r.situacao(), r.latitude(), r.longitude(),
                 r.categoria(), r.overtureId(), r.atribuicaoCatalogo(), r.versao(), dados.ultimaAvaliacaoEm());

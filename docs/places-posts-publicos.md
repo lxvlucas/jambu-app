@@ -47,6 +47,9 @@ Máscaras explícitas:
 - Autocomplete: `suggestions.placePrediction.placeId,suggestions.placePrediction.text.text,suggestions.placePrediction.types`.
 - Details: `id,types` (SKU Essentials). Nome, endereço e link do Google não são pedidos:
   o detalhe só confirma que o lugar é de comida.
+- Text Search: `places.id` (Essentials IDs Only, gratuita; não conta na cota do app). Só no casamento
+  com o Overture escondido (T05), com o nome e o ponto do Overture; nada da resposta é guardado além do
+  `place_id` que coincidir com o escolhido.
 
 Não se solicitam notas, reviews ou fotos Google. Não há wildcard, importação em
 massa, retry automático, log de payloads ou fallback fictício. O prazo cobre a resposta

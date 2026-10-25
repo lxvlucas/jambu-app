@@ -33,7 +33,7 @@ public record FotoProperties(
         @NotNull Duration retencaoRejeitadas,
         @Min(1024) @Max(1048576) int tetoPrincipalBytes,
         @Min(1024) @Max(204800) int tetoMiniaturaBytes,
-        Set<String> moderadores) {
+        Set<UUID> moderadores) {
 
     public FotoProperties {
         if (diretorioLocal == null) diretorioLocal = Path.of(".local/storage-fotos");
@@ -63,16 +63,13 @@ public record FotoProperties(
             retencaoRejeitadas = Duration.ofDays(7);
         if (tetoPrincipalBytes <= 0) tetoPrincipalBytes = 1_048_576;
         if (tetoMiniaturaBytes <= 0) tetoMiniaturaBytes = 204_800;
-        if (moderadores == null) moderadores = Set.of();
-        else moderadores = moderadores.stream()
-                .filter(Objects::nonNull)
-                .map(s -> s.strip().toLowerCase(Locale.ROOT))
-                .filter(s -> !s.isEmpty())
-                .collect(Collectors.toUnmodifiableSet());
+        moderadores = moderadores == null ? Set.of()
+                : moderadores.stream().filter(Objects::nonNull).collect(Collectors.toUnmodifiableSet());
     }
 
-    public boolean ehModerador(String username) {
-        return username != null && moderadores.contains(username.strip().toLowerCase(Locale.ROOT));
+    /** Pelo UUID, como os revisores de restaurantes: trocar o nome de usuário não dá nem tira o poder de moderar. */
+    public boolean ehModerador(UUID usuarioId) {
+        return usuarioId != null && moderadores.contains(usuarioId);
     }
 
     @Override

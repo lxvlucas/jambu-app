@@ -29,6 +29,7 @@ import tools.jackson.databind.json.JsonMapper;
 class CatalogoRestaurantesTest {
     private static final UUID REVISOR = UUID.fromString("21000000-0000-0000-0000-000000000001");
     private static final String SENHA = "Teste-catalogo-123!";
+    private static final byte[] JPEG = jpeg600x800();
     @Autowired AutenticacaoService auth;
     @Autowired CadastroRestauranteService cadastros;
     @Autowired RestauranteService service;
@@ -37,6 +38,7 @@ class CatalogoRestaurantesTest {
     @Autowired RevisaoRestauranteService revisao;
     @Autowired ImportacaoOvertureService importacao;
     @Autowired CotaPlacesService cota;
+    @Autowired com.jambuapp.api.foto.FotoService fotos;
     @Autowired CatalogoProperties config;
     @Autowired JdbcTemplate jdbc;
     @Autowired JsonMapper json;
@@ -145,7 +147,7 @@ class CatalogoRestaurantesTest {
         String sufixo = UUID.randomUUID().toString().substring(0, 8);
         var criado = cadastros.cadastrar(autor, UUID.randomUUID().toString(), manual("Casa Paraense " + sufixo, -2.532, -44.302, Set.of()));
         meals.publicar(autor, UUID.randomUUID().toString(), new MealRequest(criado.restaurante().id(),
-                List.of(new DishRequest(null, "Tacacá " + sufixo, new BigDecimal("4.5"))), null, true, null, null, null));
+                List.of(new DishRequest(null, "Tacacá " + sufixo, new BigDecimal("4.5"))), List.of(foto(autor)), null, true, null, null, null));
         var busca = service.buscar("tacaca " + sufixo, null, false, autor);
         assertThat(busca.locais()).extracting(RestauranteResumo::id).containsExactly(criado.restaurante().id());
         assertThat(places.chamadas.get()).isZero();
@@ -412,9 +414,9 @@ class CatalogoRestaurantesTest {
         publicar(lugar);
         String tokenAutor = token(autor);
         UUID semMeal = conta(), segunda = conta(), terceira = conta(), quarta = conta();
-        meals.publicar(segunda, UUID.randomUUID().toString(), mealEm(lugar));
-        meals.publicar(terceira, UUID.randomUUID().toString(), mealEm(lugar));
-        meals.publicar(quarta, UUID.randomUUID().toString(), mealEm(lugar));
+        meals.publicar(segunda, UUID.randomUUID().toString(), mealEm(segunda, lugar));
+        meals.publicar(terceira, UUID.randomUUID().toString(), mealEm(terceira, lugar));
+        meals.publicar(quarta, UUID.randomUUID().toString(), mealEm(quarta, lugar));
         assertThat(http("POST", caminho, null, confirma, null).statusCode()).isEqualTo(401);
         assertThat(codigo(http("POST", caminho, tokenAutor, confirma, null))).isEqualTo("acesso_negado");
         assertThat(codigo(http("POST", caminho, token(semMeal), confirma, null))).isEqualTo("acesso_negado");
@@ -449,7 +451,7 @@ class CatalogoRestaurantesTest {
         assertThat(podeConfirmar(caminho, token(autor))).isFalse();
         assertThat(podeConfirmar(caminho, token(semMeal))).isFalse();
         assertThat(podeConfirmar(caminho, token(segunda))).isFalse();
-        meals.publicar(segunda, UUID.randomUUID().toString(), mealEm(lugar));
+        meals.publicar(segunda, UUID.randomUUID().toString(), mealEm(segunda, lugar));
         assertThat(podeConfirmar(caminho, token(segunda))).isTrue();
         http("POST", "/api/restaurantes/" + lugar + "/retornos", token(segunda), "{\"tipo\":\"CORRECAO\",\"observacao\":\"Fechou\"}", null);
         assertThat(podeConfirmar(caminho, token(segunda))).isFalse();
@@ -461,7 +463,7 @@ class CatalogoRestaurantesTest {
         // T08 (RN-58): "Corrigir" vai para a revisão dos founders; a revisão do lugar resolve a correção.
         var lugar = cadastrar("Lugar com nome errado " + UUID.randomUUID()).restaurante().id();
         UUID segunda = conta();
-        meals.publicar(segunda, UUID.randomUUID().toString(), mealEm(lugar));
+        meals.publicar(segunda, UUID.randomUUID().toString(), mealEm(segunda, lugar));
         http("POST", "/api/restaurantes/" + lugar + "/retornos", token(segunda),
                 "{\"tipo\":\"CORRECAO\",\"nomeSugerido\":\"Nome certo\",\"observacao\":\"Na placa está outro nome\"}", null);
         assertThat(http("GET", "/api/moderacao/restaurantes/retornos", token(segunda), null, null).statusCode()).isEqualTo(403);
@@ -525,6 +527,182 @@ class CatalogoRestaurantesTest {
         assertThat(restaurantes.findByOvertureId(ids.get(0)).orElseThrow().getSituacao()).isEqualTo(SituacaoRestaurante.ATIVO);
     }
 
+    @Test void selecaoDoGoogleCasaComLugarEscondidoDoOverture() {
+        // T05 (RN-50 caso b, RN-51, R21): o lugar escolhido no Google que existe escondido no Overture entra com o
+        // nome e o pin do Overture, provisório; o Google só confirma o place_id, buscado com o nosso nome e ponto.
+        String sufixo = UUID.randomUUID().toString().replace("-", "");
+        String overtureId = UUID.randomUUID().toString(), nome = "Casa escondida " + sufixo, placeId = "ChIJ_casa_" + sufixo;
+        assertThat(importacao.importar(REVISOR, new ImportacaoOvertureRequest("2026-10-21.0", List.of("CDLA-Permissive-2.0"),
+                List.of(comConfianca(feature(overtureId, nome, 1), 0.4)))).itens().getFirst().resultado()).isEqualTo("ESCONDIDO");
+        places.idsPorNome.put(nome, List.of("ChIJ_outro", placeId));
+        long cotaAntes = consumoGoogleHoje();
+        int detalhesAntes = places.chamadas.get();
+        // A pessoa digitou com erro; os trigramas acham o escondido mesmo assim.
+        var escolhido = service.selecionar(new SelecionarRestauranteRequest(placeId, UUID.randomUUID(), "casa escondda " + sufixo));
+        assertThat(escolhido.nome()).isEqualTo(nome);
+        assertThat(escolhido.origem()).isEqualTo("OVERTURE");
+        assertThat(escolhido.situacao()).isEqualTo(SituacaoRestaurante.PROVISORIO);
+        assertThat(escolhido.googlePlaceId()).isEqualTo(placeId);
+        assertThat(escolhido.overtureId()).isEqualTo(overtureId);
+        assertThat(escolhido.latitude()).isEqualTo(-2.53);
+        assertThat(places.ultimoPonto).containsExactly(-2.53, -44.30);
+        assertThat(jdbc.queryForObject("select count(*) from referencias_overture where overture_id = ?", Integer.class, overtureId)).isZero();
+        assertThat(consumoGoogleHoje()).isEqualTo(cotaAntes);
+        assertThat(places.chamadas.get()).isEqualTo(detalhesAntes);
+        // Escolher de novo cai no caso (a): o mesmo restaurante, sem buscar no Google.
+        int buscas = places.buscasIds.get();
+        assertThat(service.selecionar(new SelecionarRestauranteRequest(placeId, UUID.randomUUID(), nome)).id()).isEqualTo(escolhido.id());
+        assertThat(places.buscasIds.get()).isEqualTo(buscas);
+    }
+
+    @Test void selecaoSemCasamentoContinuaPedindoCadastro() {
+        // T05: sem texto, sem candidato que case ou com o Google fora, a seleção continua 422 cadastro_necessario.
+        String sufixo = UUID.randomUUID().toString().replace("-", "");
+        String overtureId = UUID.randomUUID().toString(), nome = "Outra escondida " + sufixo;
+        importacao.importar(REVISOR, new ImportacaoOvertureRequest("2026-10-21.0", List.of("CDLA-Permissive-2.0"),
+                List.of(comConfianca(feature(overtureId, nome, 1), 0.35))));
+        places.idsPorNome.put(nome, List.of("ChIJ_lugar_diferente"));
+        String placeId = "ChIJ_sem_casamento_" + sufixo;
+        int buscas = places.buscasIds.get();
+        assertThatThrownBy(() -> service.selecionar(new SelecionarRestauranteRequest(placeId, UUID.randomUUID(), null)))
+                .isInstanceOfSatisfying(RegraNegocioException.class, ex -> assertThat(ex.getCodigo()).isEqualTo("cadastro_necessario"));
+        assertThat(places.buscasIds.get()).isEqualTo(buscas);
+        assertThatThrownBy(() -> service.selecionar(new SelecionarRestauranteRequest(placeId, UUID.randomUUID(), nome)))
+                .isInstanceOfSatisfying(RegraNegocioException.class, ex -> assertThat(ex.getCodigo()).isEqualTo("cadastro_necessario"));
+        assertThat(places.buscasIds.get()).isGreaterThan(buscas);
+        places.falhar = true;
+        assertThatThrownBy(() -> service.selecionar(new SelecionarRestauranteRequest(placeId, UUID.randomUUID(), nome)))
+                .isInstanceOfSatisfying(RegraNegocioException.class, ex -> assertThat(ex.getCodigo()).isEqualTo("cadastro_necessario"));
+        places.falhar = false;
+        assertThat(jdbc.queryForObject("select count(*) from referencias_overture where overture_id = ?", Integer.class, overtureId)).isEqualTo(1);
+        assertThat(restaurantes.findByOvertureId(overtureId)).isEmpty();
+    }
+
+    @Test void selecoesSimultaneasDoMesmoLugarNaoDuplicam() throws Exception {
+        String sufixo = UUID.randomUUID().toString().replace("-", "");
+        String overtureId = UUID.randomUUID().toString(), nome = "Concorrida " + sufixo, placeId = "ChIJ_concorrida_" + sufixo;
+        importacao.importar(REVISOR, new ImportacaoOvertureRequest("2026-10-21.0", List.of("CDLA-Permissive-2.0"),
+                List.of(comConfianca(feature(overtureId, nome, 1), 0.45))));
+        places.idsPorNome.put(nome, List.of(placeId));
+        try (var executor = Executors.newFixedThreadPool(4)) {
+            var largada = new CountDownLatch(1);
+            List<Future<UUID>> futuros = new ArrayList<>();
+            for (int i = 0; i < 4; i++) futuros.add(executor.submit(() -> {
+                largada.await();
+                return service.selecionar(new SelecionarRestauranteRequest(placeId, UUID.randomUUID(), nome)).id();
+            }));
+            largada.countDown();
+            Set<UUID> ids = new HashSet<>();
+            for (var f : futuros) ids.add(f.get(30, TimeUnit.SECONDS));
+            assertThat(ids).hasSize(1);
+        }
+        assertThat(jdbc.queryForObject("select count(*) from restaurantes where google_place_id = ?", Integer.class, placeId)).isEqualTo(1);
+    }
+
+    @Test void bairroSaiDoPinEApareceNaBuscaENoPerfil() {
+        // T07 (RN-45 a RN-47, R28): o bairro é o ponto de bairro do OSM mais próximo do nosso pin (até 2 km);
+        // aparece no resultado da busca e no perfil, e a busca por "nome + bairro" acha o lugar.
+        var criado = cadastros.cadastrar(autor, UUID.randomUUID().toString(), manual("Coisas do Pará Teste", -2.4990, -44.2410, Set.of()));
+        assertThat(criado.restaurante().bairro()).isEqualTo("Cohajap");
+        var busca = service.buscar("coisas do cohajap", null, false, autor);
+        assertThat(busca.locais()).filteredOn(r -> r.id().equals(criado.restaurante().id()))
+                .singleElement().extracting(RestauranteResumo::bairro).isEqualTo("Cohajap");
+        assertThat(service.consultar(criado.restaurante().id()).bairro()).isEqualTo("Cohajap");
+        // Mudou o pin na revisão: o bairro acompanha.
+        var r = restaurantes.findById(criado.restaurante().id()).orElseThrow();
+        revisao.revisar(REVISOR, r.getId(), new RevisaoRestauranteRequest(r.getVersao(), SituacaoRestaurante.ATIVO, "Pin conferido",
+                new RevisaoRestauranteRequest.Correcao("Coisas do Pará Teste", -2.4910, -44.2690, CategoriaRestaurante.RESTAURANTE)));
+        assertThat(service.consultar(r.getId()).bairro()).isEqualTo("Calhau");
+        // Endereço do Overture que cita um bairro perto do pin vale mais que o ponto mais próximo: o pin real do
+        // Outback cai mais perto do ponto da Cohama, mas o endereço diz Maranhão Novo.
+        String outback = UUID.randomUUID().toString();
+        var comEndereco = (tools.jackson.databind.node.ObjectNode) feature(outback, "Outback Teste " + UUID.randomUUID(), 1);
+        ((tools.jackson.databind.node.ObjectNode) comEndereco.path("geometry")).set("coordinates", json.valueToTree(List.of(-44.2444813, -2.5128349)));
+        ((tools.jackson.databind.node.ObjectNode) comEndereco.path("properties")).set("addresses",
+                json.valueToTree(List.of(Map.of("freeform", "Avenida Daniel de La Touche, 987, Piso L2, Maranhão Novo"))));
+        importacao.importar(REVISOR, lote("2026-10-21.0", comEndereco));
+        assertThat(restaurantes.findByOvertureId(outback).orElseThrow().getBairro()).isEqualTo("Maranhão Novo");
+        assertThat(jdbc.queryForObject("select jambu_bairro_do_ponto(-2.5128349, -44.2444813)", String.class)).isEqualTo("Cohama");
+        // Bairro citado no endereço, mas longe do pin (mais de 3 km), não vale: continua o ponto mais próximo.
+        assertThat(jdbc.queryForObject("select jambu_bairro(-2.4910, -44.2690, 'Rua do Coroadinho, 10')", String.class)).isEqualTo("Calhau");
+        // O nome da rua não conta: "Rua Quintas do Calhau" é rua; o bairro vem depois da primeira vírgula.
+        assertThat(jdbc.queryForObject("select jambu_bairro(-2.4908678, -44.26922, 'Rua Quintas do Calhau, 10')", String.class)).isEqualTo("Calhau");
+        assertThat(jdbc.queryForObject("select jambu_bairro(-2.4908678, -44.26922, 'Avenida Litorânea, 25, Quintas do Calhau')", String.class))
+                .isEqualTo("Quintas do Calhau");
+        // Longe de qualquer ponto de bairro, o campo fica vazio em vez de chutar.
+        assertThat(jdbc.queryForObject("select jambu_bairro_do_ponto(-2.0, -44.0)", String.class)).isNull();
+    }
+
+    @Test void buscaSemResultadoLocalContaTermoNormalizadoPorDiaSemDadoPessoal() {
+        // T10 (RN-61): só termo normalizado, dia e total; nada que ligue a busca a uma pessoa.
+        String sufixo = UUID.randomUUID().toString().substring(0, 8);
+        service.buscar("Xâqúi " + sufixo, null, false, autor);
+        clock.agora = clock.agora.plusSeconds(2);
+        service.buscar("  XAQUI  " + sufixo.toUpperCase(), null, false, autor);
+        assertThat(jdbc.queryForList("select dia, buscas from buscas_sem_resultado where termo = ?", "xaqui " + sufixo))
+                .containsExactly(Map.of("dia", java.sql.Date.valueOf("2026-10-22"), "buscas", 2));
+        clock.agora = clock.agora.plusSeconds(86400);
+        service.buscar("xaqui " + sufixo, null, false, autor);
+        assertThat(jdbc.queryForObject("select count(*) from buscas_sem_resultado where termo = ?", Integer.class, "xaqui " + sufixo))
+                .isEqualTo(2);
+        // Busca que acha lugar no catálogo não conta, mesmo pedindo "Ver mais resultados".
+        cadastrar("Zuqara " + sufixo);
+        assertThat(service.buscar("zuqara " + sufixo, null, false, autor).locais()).isNotEmpty();
+        service.buscar("zuqara " + sufixo, null, true, autor);
+        assertThat(jdbc.queryForObject("select count(*) from buscas_sem_resultado where termo = ?", Integer.class, "zuqara " + sufixo))
+                .isZero();
+        assertThat(jdbc.queryForList("""
+                select column_name from information_schema.columns where table_name = 'buscas_sem_resultado' order by column_name
+                """, String.class)).containsExactly("buscas", "dia", "termo");
+    }
+
+    @Test void voceEstaAquiListaAteDezEm150MetrosEAmpliaPara500SemGoogle() {
+        // T11 (RF-16, P-08, R17): ponto isolado de outros testes; cada conta cadastra até 5 lugares por dia.
+        double lat = -2.5600, lon = -44.2000;
+        var autores = List.of(autor, conta(), conta(), conta());
+        int[] n = {0};
+        java.util.function.BiFunction<Double, Double, UUID> lugar = (dLat, dLon) -> cadastros.cadastrar(autores.get(n[0]++ / 5),
+                UUID.randomUUID().toString(), manual(UUID.randomUUID().toString(), lat + dLat / 111320, lon + dLon / 111320, Set.of()))
+                .restaurante().id();
+        var maisPerto = lugar.apply(10.0, 0.0);
+        List<UUID> dentro = new ArrayList<>(List.of(maisPerto));
+        for (int i = 1; i <= 10; i++) dentro.add(lugar.apply(0.0, 10.0 + 12 * i));
+        var aDuzentos = lugar.apply(200.0, 0.0);
+        var rejeitado = lugar.apply(5.0, 5.0);
+        jdbc.update("update restaurantes set situacao = 'REJEITADO' where id = ?", rejeitado);
+        var perto = service.proximos(lat, lon);
+        // O lugar onde a pessoa está vem primeiro; até 10, do mais perto ao mais longe, todos em 150 m.
+        assertThat(perto.itens()).hasSize(10);
+        assertThat(perto.itens().getFirst().restaurante().id()).isEqualTo(maisPerto);
+        assertThat(perto.itens().getFirst().distanciaMetros()).isBetween(9L, 11L);
+        assertThat(perto.itens()).extracting(i -> i.restaurante().id()).isSubsetOf(dentro).doesNotContain(aDuzentos, rejeitado);
+        assertThat(perto.itens()).extracting(RestaurantesProximosResponse.Item::distanciaMetros).isSorted().allMatch(d -> d <= 150);
+        // Nada em 150 m: amplia para 500 m; mais longe que isso fica de fora.
+        double lat2 = lat - 0.02;
+        var aTrezentos = cadastros.cadastrar(autores.get(3), UUID.randomUUID().toString(),
+                manual(UUID.randomUUID().toString(), lat2 + 300.0 / 111320, lon, Set.of())).restaurante().id();
+        cadastros.cadastrar(autores.get(3), UUID.randomUUID().toString(), manual(UUID.randomUUID().toString(), lat2 - 600.0 / 111320, lon, Set.of()));
+        assertThat(service.proximos(lat2, lon).itens()).singleElement().satisfies(i -> {
+            assertThat(i.restaurante().id()).isEqualTo(aTrezentos);
+            assertThat(i.distanciaMetros()).isBetween(299L, 301L);
+        });
+        assertThat(service.proximos(-2.0, -44.0).itens()).isEmpty();
+        assertThat(places.chamadas.get()).isZero();
+    }
+
+    @Test void voceEstaAquiPorHttpExigeLoginECoordenadaValida() throws Exception {
+        String token = token(autor);
+        assertThat(http("POST", "/api/restaurantes/proximos", null, "{\"latitude\":-2.5,\"longitude\":-44.2}", null).statusCode()).isEqualTo(401);
+        var invalida = http("POST", "/api/restaurantes/proximos", token, "{\"latitude\":91,\"longitude\":-44.2}", null);
+        assertThat(invalida.statusCode()).isEqualTo(400);
+        assertThat(codigo(invalida)).isEqualTo("dados_invalidos");
+        assertThat(http("POST", "/api/restaurantes/proximos", token, "{\"latitude\":-2.5}", null).statusCode()).isEqualTo(400);
+        var ok = http("POST", "/api/restaurantes/proximos", token, "{\"latitude\":-2.0,\"longitude\":-44.0}", null);
+        assertThat(ok.statusCode()).isEqualTo(200);
+        assertThat(ok.headers().firstValue("Cache-Control")).hasValue("no-store");
+        assertThat(json.readTree(ok.body()).path("itens").isArray()).isTrue();
+    }
+
     @Test void contratoHttpProtegeCadastroEAdministracao() throws Exception {
         String username = jdbc.queryForObject("select username from usuarios where id = ?", String.class, autor);
         String token = auth.login(new LoginRequest(username, SENHA)).token();
@@ -545,6 +723,9 @@ class CatalogoRestaurantesTest {
         ((tools.jackson.databind.node.ObjectNode) feature.path("properties")).put("confidence", confianca);
         return feature;
     }
+    private long consumoGoogleHoje() {
+        return jdbc.queryForObject("select coalesce(sum(chamadas), 0) from consumo_places_diario", Long.class);
+    }
     private UUID conta() {
         String nome = "ret_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
         return auth.cadastrar(new CadastroRequest(nome, nome + "@example.test", "98999999999", SENHA)).id();
@@ -553,8 +734,15 @@ class CatalogoRestaurantesTest {
         String username = jdbc.queryForObject("select username from usuarios where id = ?", String.class, usuario);
         return auth.login(new LoginRequest(username, SENHA)).token();
     }
-    private MealRequest mealEm(UUID restauranteId) {
-        return new MealRequest(restauranteId, List.of(new DishRequest(null, "Prato", new BigDecimal("4"))), null, null, null, null, null);
+    private MealRequest mealEm(UUID autorMeal, UUID restauranteId) {
+        return new MealRequest(restauranteId, List.of(new DishRequest(null, "Prato", new BigDecimal("4"))), List.of(foto(autorMeal)),
+                null, null, null, null, null);
+    }
+    /** Foto solta da pessoa (T16); sai da fila de moderação para não atrasar os testes de foto. */
+    private UUID foto(UUID autorFoto) {
+        UUID id = fotos.enviarSoltaBytes(autorFoto, JPEG).id();
+        jdbc.update("update tarefas_moderacao set estado = 'CANCELADA' where foto_id = ?", id);
+        return id;
     }
     private boolean podeConfirmar(String caminho, String token) throws Exception {
         var resposta = http("GET", caminho, token, null, null);
@@ -572,7 +760,15 @@ class CatalogoRestaurantesTest {
     }
     private MealResponse publicar(UUID restauranteId) {
         return meals.publicar(autor, UUID.randomUUID().toString(), new MealRequest(restauranteId,
-                List.of(new DishRequest(null, "Prato", new BigDecimal("4.5"))), null, true, null, null, null));
+                List.of(new DishRequest(null, "Prato", new BigDecimal("4.5"))), List.of(foto(autor)), null, true, null, null, null));
+    }
+    private static byte[] jpeg600x800() {
+        try {
+            var imagem = new java.awt.image.BufferedImage(600, 800, java.awt.image.BufferedImage.TYPE_INT_RGB);
+            var saida = new java.io.ByteArrayOutputStream();
+            javax.imageio.ImageIO.write(imagem, "jpg", saida);
+            return saida.toByteArray();
+        } catch (java.io.IOException ex) { throw new IllegalStateException(ex); }
     }
     private ImportacaoOvertureRequest lote(String release, JsonNode feature) {
         return new ImportacaoOvertureRequest(release, List.of("CDLA-Permissive-2.0"), List.of(feature));
