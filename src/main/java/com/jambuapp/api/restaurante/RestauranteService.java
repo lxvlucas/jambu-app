@@ -16,10 +16,12 @@ public class RestauranteService {
     private final CotaPlacesService cota;
     private final CasamentoOvertureService casamento;
     private final CatalogoProperties config;
+    private final BuscasSemResultadoService semResultado;
     public RestauranteService(RestauranteLocalService local, ProvedorRestaurantes places, CotaPlacesService cota,
-            CasamentoOvertureService casamento, CatalogoProperties config) {
+            CasamentoOvertureService casamento, CatalogoProperties config, BuscasSemResultadoService semResultado) {
         this.casamento = casamento;
         this.config = config;
+        this.semResultado = semResultado;
         this.local = local; this.places = places; this.cota = cota;
     }
     public SugestoesRestaurantesResponse buscar(String termo, UUID tokenSessao) {
@@ -31,6 +33,7 @@ public class RestauranteService {
             throw RegraNegocioException.invalido("Informe termo de 2 a 100 caracteres.");
         UUID sessao = tokenSessao == null ? UUID.randomUUID() : tokenSessao;
         var locais = local.buscar(termo);
+        if (locais.isEmpty()) semResultado.registrar(termo);
         if (!locais.isEmpty() && !ampliar)
             return new SugestoesRestaurantesResponse(locais, List.of(), "NAO_SOLICITADO", true, true, sessao, null);
         // O Google só é consultado a partir de 3 letras; a busca local já roda com 2.

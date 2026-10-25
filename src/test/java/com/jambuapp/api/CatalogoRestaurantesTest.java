@@ -631,6 +631,29 @@ class CatalogoRestaurantesTest {
         assertThat(jdbc.queryForObject("select jambu_bairro_do_ponto(-2.0, -44.0)", String.class)).isNull();
     }
 
+    @Test void buscaSemResultadoLocalContaTermoNormalizadoPorDiaSemDadoPessoal() {
+        // T10 (RN-61): só termo normalizado, dia e total; nada que ligue a busca a uma pessoa.
+        String sufixo = UUID.randomUUID().toString().substring(0, 8);
+        service.buscar("Xâqúi " + sufixo, null, false, autor);
+        clock.agora = clock.agora.plusSeconds(2);
+        service.buscar("  XAQUI  " + sufixo.toUpperCase(), null, false, autor);
+        assertThat(jdbc.queryForList("select dia, buscas from buscas_sem_resultado where termo = ?", "xaqui " + sufixo))
+                .containsExactly(Map.of("dia", java.sql.Date.valueOf("2026-10-22"), "buscas", 2));
+        clock.agora = clock.agora.plusSeconds(86400);
+        service.buscar("xaqui " + sufixo, null, false, autor);
+        assertThat(jdbc.queryForObject("select count(*) from buscas_sem_resultado where termo = ?", Integer.class, "xaqui " + sufixo))
+                .isEqualTo(2);
+        // Busca que acha lugar no catálogo não conta, mesmo pedindo "Ver mais resultados".
+        cadastrar("Zuqara " + sufixo);
+        assertThat(service.buscar("zuqara " + sufixo, null, false, autor).locais()).isNotEmpty();
+        service.buscar("zuqara " + sufixo, null, true, autor);
+        assertThat(jdbc.queryForObject("select count(*) from buscas_sem_resultado where termo = ?", Integer.class, "zuqara " + sufixo))
+                .isZero();
+        assertThat(jdbc.queryForList("""
+                select column_name from information_schema.columns where table_name = 'buscas_sem_resultado' order by column_name
+                """, String.class)).containsExactly("buscas", "dia", "termo");
+    }
+
     @Test void contratoHttpProtegeCadastroEAdministracao() throws Exception {
         String username = jdbc.queryForObject("select username from usuarios where id = ?", String.class, autor);
         String token = auth.login(new LoginRequest(username, SENHA)).token();
