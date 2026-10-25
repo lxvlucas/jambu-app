@@ -37,7 +37,7 @@ class GooglePlacesAdapterTest {
     CotaPlacesService cota = mock(CotaPlacesService.class);
     // Mesma área padrão da API: a ilha de São Luís (geografia/grande-sao-luis.geojson).
     com.jambuapp.api.restaurante.AreaCatalogo area = new com.jambuapp.api.restaurante.AreaCatalogo(json,
-            new com.jambuapp.api.restaurante.CatalogoProperties(300, 300, 0.45, Set.of(), java.util.List.of("grande-sao-luis"), 5, 30));
+            new com.jambuapp.api.restaurante.CatalogoProperties(300, 300, 0.45, Set.of(), java.util.List.of("grande-sao-luis"), 5, 30, true, 3));
 
     @BeforeEach
     void iniciar() throws Exception {
@@ -95,6 +95,25 @@ class GooglePlacesAdapterTest {
         assertThat(retangulo.path("high").path("latitude").asDouble()).isBetween(-2.45, -2.30);
         assertThat(retangulo.path("low").path("longitude").asDouble()).isBetween(-44.45, -44.30);
         assertThat(retangulo.path("high").path("longitude").asDouble()).isBetween(-44.05, -43.90);
+    }
+    @Test
+    void buscaSoDeIdsUsaNossoNomeENossoPontoSemGastarCota() {
+        // T05: Text Search "IDs Only" (gratuita): só places.id, com o nome e o pin do Jambu, sem reservar a cota paga.
+        resposta = "{\"places\":[{\"id\":\"ChIJ_um\"},{\"id\":\"ChIJ_dois\"}]}";
+        assertThat(adapter.buscarIds("Bar do Felipe", -2.4831, -44.2451)).containsExactly("ChIJ_um", "ChIJ_dois");
+        assertThat(metodo).isEqualTo("POST");
+        assertThat(uri.toString()).isEqualTo("/v1/places:searchText");
+        assertThat(mascara).isEqualTo("places.id");
+        var body = json.readTree(corpo);
+        assertThat(body.path("textQuery").asString()).isEqualTo("Bar do Felipe");
+        var circulo = body.path("locationBias").path("circle");
+        assertThat(circulo.path("center").path("latitude").asDouble()).isEqualTo(-2.4831);
+        assertThat(circulo.path("center").path("longitude").asDouble()).isEqualTo(-44.2451);
+        assertThat(circulo.path("radius").asDouble()).isEqualTo(200);
+        assertThat(body.path("pageSize").asInt()).isEqualTo(5);
+        org.mockito.Mockito.verify(cota, org.mockito.Mockito.never()).reservar();
+        resposta = "{}";
+        assertThat(adapter.buscarIds("Bar do Felipe", -2.4831, -44.2451)).isEmpty();
     }
     @Test
     void detailsUsaGetTokenAtribuicoesESomenteDadosPermitidos() {

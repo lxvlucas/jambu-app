@@ -14,7 +14,12 @@ public class RestauranteService {
     private final RestauranteLocalService local;
     private final ProvedorRestaurantes places;
     private final CotaPlacesService cota;
-    public RestauranteService(RestauranteLocalService local, ProvedorRestaurantes places, CotaPlacesService cota) {
+    private final CasamentoOvertureService casamento;
+    private final CatalogoProperties config;
+    public RestauranteService(RestauranteLocalService local, ProvedorRestaurantes places, CotaPlacesService cota,
+            CasamentoOvertureService casamento, CatalogoProperties config) {
+        this.casamento = casamento;
+        this.config = config;
         this.local = local; this.places = places; this.cota = cota;
     }
     public SugestoesRestaurantesResponse buscar(String termo, UUID tokenSessao) {
@@ -50,11 +55,26 @@ public class RestauranteService {
     /** Compatibilidade: referências Google já existentes são reutilizadas sem HTTP. */
     public RestauranteResponse selecionar(SelecionarRestauranteRequest request) {
         GooglePlacesAdapter.validarPlaceId(request.googlePlaceId());
-        var id = local.porGoogle(request.googlePlaceId()).orElseThrow(() ->
+        var id = local.porGoogle(request.googlePlaceId()).or(() -> casar(request)).orElseThrow(() ->
                 new RegraNegocioException(HttpStatus.UNPROCESSABLE_CONTENT, "cadastro_necessario",
                         "Informe nome, pin e categoria próprios em POST /api/restaurantes/cadastros."));
         local.exigirSelecionavel(id);
         return resposta(local.consultar(id));
+    }
+    /**
+     * Caso (b) da RN-50 (T05): para cada escondido parecido com o texto digitado, pergunta ao Google, com o nosso
+     * nome e o nosso ponto, se o lugar é o escolhido. Google fora do ar não impede o fluxo: vira caso (c).
+     */
+    private Optional<UUID> casar(SelecionarRestauranteRequest request) {
+        if (!config.casamentoOverture() || request.textoBusca() == null) return Optional.empty();
+        try {
+            for (var c : casamento.candidatos(request.textoBusca()))
+                if (places.buscarIds(c.nome(), c.latitude(), c.longitude()).contains(request.googlePlaceId()))
+                    return casamento.criar(c.overtureId(), request.googlePlaceId());
+        } catch (PlacesException ex) {
+            return Optional.empty();
+        }
+        return Optional.empty();
     }
     /** O perfil nunca consulta o Google: a cota só afeta achar lugares novos. */
     public RestauranteResponse consultar(UUID id) {

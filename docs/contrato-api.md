@@ -46,7 +46,7 @@ campos desconhecidos são rejeitados no cadastro e na atualização.
 | `DELETE /api/moderacao/fotos/{fotoId}` | 204, remoção administrativa com motivo |
 | `GET /api/restaurantes?termo=&tokenSessao=&ampliar=false` | Sugestões locais; amplia automaticamente quando vazio ou explicitamente com ampliar=true; /sugestoes é alias |
 | `POST /api/restaurantes/cadastros` | Cadastro próprio idempotente, confirmação de possíveis duplicatas e placeId opcional |
-| `POST /api/restaurantes/selecoes` | Reutiliza referência Google existente; novo ID retorna 422 cadastro_necessario |
+| `POST /api/restaurantes/selecoes` | Reutiliza referência Google existente (caso a) ou casa com o Overture escondido (caso b, T05); senão 422 cadastro_necessario |
 | `GET /api/moderacao/restaurantes` | Fila paginada de revisão, restrita aos UUIDs configurados |
 | `GET /api/moderacao/restaurantes/retornos` | Fila paginada das correções sugeridas pela 2ª conta, só founders |
 | `POST /api/moderacao/restaurantes/{id}/revisao` | Revisão/correção com versão e auditoria; resolve as correções sugeridas do lugar |
@@ -152,8 +152,10 @@ a mesma chave com os UUIDs recusados em distintosConfirmados. Os cadastros novos
 ficam PROVISORIO e já aceitam Meal. Conteúdo próprio não deve ser copiado do Google.
 
 Quando houver seleção externa, informar placeId e token para validar/vincular;
-somente o ID validado é persistido. /selecoes mantém compatibilidade para referências
-Google já existentes; não cria mais restaurante apenas com placeId.
+somente o ID validado é persistido. `/selecoes` (`{ "googlePlaceId", "tokenSessao", "textoBusca" }`,
+`textoBusca` opcional, até 100 caracteres) reutiliza referências Google já existentes e, com o casamento
+ligado, cria o restaurante a partir do Overture escondido (ver [catálogo](catalogo-restaurantes.md));
+nunca cria restaurante só com o placeId.
 
 A busca local ignora acentos, usa prefixos das palavras, tolera erro de digitação
 (trigramas) e também acha o restaurante pelo nome de pratos já avaliados; nome exato vem

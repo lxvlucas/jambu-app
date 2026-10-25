@@ -1099,6 +1099,17 @@ class JambuApiApplicationTests {
             verificar(token);
             return new DadosLugar(id, List.of(id.startsWith("nao_permitido") ? "school" : "restaurant"));
         }
+        /** T05: IDs que a busca "só IDs" devolve para cada nome; nome sem entrada devolve vazio. */
+        final Map<String, List<String>> idsPorNome = new ConcurrentHashMap<>();
+        final AtomicInteger buscasIds = new AtomicInteger();
+        volatile double[] ultimoPonto;
+        @Override public List<String> buscarIds(String nome, double latitude, double longitude) {
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+            buscasIds.incrementAndGet();
+            ultimoPonto = new double[] { latitude, longitude };
+            if (falhar) throw PlacesException.indisponivel();
+            return idsPorNome.getOrDefault(nome, List.of());
+        }
         void verificar(UUID token) {
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
             chamadas.incrementAndGet();

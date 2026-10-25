@@ -109,9 +109,20 @@ a pessoa a copiar/redigitar dados Google para contornar as condições de uso.
 Identificador/tipo inválido retorna 422; falha técnica permite cadastro próprio.
 Se a referência já existe, reutiliza o UUID sem consultar novamente o provedor.
 
-`POST /api/restaurantes/selecoes` permanece apenas para reutilizar referências
-Google **já existentes**, com o DTO antigo. Um ID desconhecido retorna 422
-`cadastro_necessario`; o cliente passa a preencher o cadastro próprio.
+`POST /api/restaurantes/selecoes` reutiliza referências Google **já existentes**
+(caso a). Um ID desconhecido retorna 422 `cadastro_necessario`, e o cliente passa a
+preencher o cadastro próprio (caso c).
+
+Com `JAMBU_CASAMENTO_OVERTURE=true` e o campo opcional `textoBusca` (o que a pessoa digitou), um ID
+desconhecido passa antes pelo **casamento com o Overture escondido** (T05, caso b da RN-50): a API pega
+até `JAMBU_CANDIDATOS_CASAMENTO` (padrão 3) lugares de `referencias_overture` com nome parecido com o
+texto (trigramas) e, para cada um, faz a busca do Google que só devolve IDs (Text Search, máscara
+`places.id`, gratuita e fora da cota paga) com **o nome e o pin do Overture**, num raio de 200 m. Se o ID
+escolhido voltar, cria o restaurante `OVERTURE` **provisório** com o nome, o pin e as fontes do Overture,
+guarda o `place_id`, tira o lugar da tabela escondida e devolve 200 com o restaurante. Sem texto, sem
+candidato que case ou com o Google fora do ar, a resposta continua 422 `cadastro_necessario`. Seleções
+simultâneas do mesmo lugar não duplicam (lock do catálogo e `google_place_id` único). Desligado por
+padrão até o teste M1 medir quantos lugares casam.
 Para escolher um resultado local, basta usar seu UUID na Meal.
 
 ## Perfis, revisão e histórico

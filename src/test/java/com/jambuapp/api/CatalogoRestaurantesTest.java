@@ -525,6 +525,78 @@ class CatalogoRestaurantesTest {
         assertThat(restaurantes.findByOvertureId(ids.get(0)).orElseThrow().getSituacao()).isEqualTo(SituacaoRestaurante.ATIVO);
     }
 
+    @Test void selecaoDoGoogleCasaComLugarEscondidoDoOverture() {
+        // T05 (RN-50 caso b, RN-51, R21): o lugar escolhido no Google que existe escondido no Overture entra com o
+        // nome e o pin do Overture, provisório; o Google só confirma o place_id, buscado com o nosso nome e ponto.
+        String sufixo = UUID.randomUUID().toString().replace("-", "");
+        String overtureId = UUID.randomUUID().toString(), nome = "Casa escondida " + sufixo, placeId = "ChIJ_casa_" + sufixo;
+        assertThat(importacao.importar(REVISOR, new ImportacaoOvertureRequest("2026-10-21.0", List.of("CDLA-Permissive-2.0"),
+                List.of(comConfianca(feature(overtureId, nome, 1), 0.4)))).itens().getFirst().resultado()).isEqualTo("ESCONDIDO");
+        places.idsPorNome.put(nome, List.of("ChIJ_outro", placeId));
+        long cotaAntes = consumoGoogleHoje();
+        int detalhesAntes = places.chamadas.get();
+        // A pessoa digitou com erro; os trigramas acham o escondido mesmo assim.
+        var escolhido = service.selecionar(new SelecionarRestauranteRequest(placeId, UUID.randomUUID(), "casa escondda " + sufixo));
+        assertThat(escolhido.nome()).isEqualTo(nome);
+        assertThat(escolhido.origem()).isEqualTo("OVERTURE");
+        assertThat(escolhido.situacao()).isEqualTo(SituacaoRestaurante.PROVISORIO);
+        assertThat(escolhido.googlePlaceId()).isEqualTo(placeId);
+        assertThat(escolhido.overtureId()).isEqualTo(overtureId);
+        assertThat(escolhido.latitude()).isEqualTo(-2.53);
+        assertThat(places.ultimoPonto).containsExactly(-2.53, -44.30);
+        assertThat(jdbc.queryForObject("select count(*) from referencias_overture where overture_id = ?", Integer.class, overtureId)).isZero();
+        assertThat(consumoGoogleHoje()).isEqualTo(cotaAntes);
+        assertThat(places.chamadas.get()).isEqualTo(detalhesAntes);
+        // Escolher de novo cai no caso (a): o mesmo restaurante, sem buscar no Google.
+        int buscas = places.buscasIds.get();
+        assertThat(service.selecionar(new SelecionarRestauranteRequest(placeId, UUID.randomUUID(), nome)).id()).isEqualTo(escolhido.id());
+        assertThat(places.buscasIds.get()).isEqualTo(buscas);
+    }
+
+    @Test void selecaoSemCasamentoContinuaPedindoCadastro() {
+        // T05: sem texto, sem candidato que case ou com o Google fora, a seleção continua 422 cadastro_necessario.
+        String sufixo = UUID.randomUUID().toString().replace("-", "");
+        String overtureId = UUID.randomUUID().toString(), nome = "Outra escondida " + sufixo;
+        importacao.importar(REVISOR, new ImportacaoOvertureRequest("2026-10-21.0", List.of("CDLA-Permissive-2.0"),
+                List.of(comConfianca(feature(overtureId, nome, 1), 0.35))));
+        places.idsPorNome.put(nome, List.of("ChIJ_lugar_diferente"));
+        String placeId = "ChIJ_sem_casamento_" + sufixo;
+        int buscas = places.buscasIds.get();
+        assertThatThrownBy(() -> service.selecionar(new SelecionarRestauranteRequest(placeId, UUID.randomUUID(), null)))
+                .isInstanceOfSatisfying(RegraNegocioException.class, ex -> assertThat(ex.getCodigo()).isEqualTo("cadastro_necessario"));
+        assertThat(places.buscasIds.get()).isEqualTo(buscas);
+        assertThatThrownBy(() -> service.selecionar(new SelecionarRestauranteRequest(placeId, UUID.randomUUID(), nome)))
+                .isInstanceOfSatisfying(RegraNegocioException.class, ex -> assertThat(ex.getCodigo()).isEqualTo("cadastro_necessario"));
+        assertThat(places.buscasIds.get()).isGreaterThan(buscas);
+        places.falhar = true;
+        assertThatThrownBy(() -> service.selecionar(new SelecionarRestauranteRequest(placeId, UUID.randomUUID(), nome)))
+                .isInstanceOfSatisfying(RegraNegocioException.class, ex -> assertThat(ex.getCodigo()).isEqualTo("cadastro_necessario"));
+        places.falhar = false;
+        assertThat(jdbc.queryForObject("select count(*) from referencias_overture where overture_id = ?", Integer.class, overtureId)).isEqualTo(1);
+        assertThat(restaurantes.findByOvertureId(overtureId)).isEmpty();
+    }
+
+    @Test void selecoesSimultaneasDoMesmoLugarNaoDuplicam() throws Exception {
+        String sufixo = UUID.randomUUID().toString().replace("-", "");
+        String overtureId = UUID.randomUUID().toString(), nome = "Concorrida " + sufixo, placeId = "ChIJ_concorrida_" + sufixo;
+        importacao.importar(REVISOR, new ImportacaoOvertureRequest("2026-10-21.0", List.of("CDLA-Permissive-2.0"),
+                List.of(comConfianca(feature(overtureId, nome, 1), 0.45))));
+        places.idsPorNome.put(nome, List.of(placeId));
+        try (var executor = Executors.newFixedThreadPool(4)) {
+            var largada = new CountDownLatch(1);
+            List<Future<UUID>> futuros = new ArrayList<>();
+            for (int i = 0; i < 4; i++) futuros.add(executor.submit(() -> {
+                largada.await();
+                return service.selecionar(new SelecionarRestauranteRequest(placeId, UUID.randomUUID(), nome)).id();
+            }));
+            largada.countDown();
+            Set<UUID> ids = new HashSet<>();
+            for (var f : futuros) ids.add(f.get(30, TimeUnit.SECONDS));
+            assertThat(ids).hasSize(1);
+        }
+        assertThat(jdbc.queryForObject("select count(*) from restaurantes where google_place_id = ?", Integer.class, placeId)).isEqualTo(1);
+    }
+
     @Test void contratoHttpProtegeCadastroEAdministracao() throws Exception {
         String username = jdbc.queryForObject("select username from usuarios where id = ?", String.class, autor);
         String token = auth.login(new LoginRequest(username, SENHA)).token();
@@ -544,6 +616,9 @@ class CatalogoRestaurantesTest {
     private JsonNode comConfianca(JsonNode feature, double confianca) {
         ((tools.jackson.databind.node.ObjectNode) feature.path("properties")).put("confidence", confianca);
         return feature;
+    }
+    private long consumoGoogleHoje() {
+        return jdbc.queryForObject("select coalesce(sum(chamadas), 0) from consumo_places_diario", Long.class);
     }
     private UUID conta() {
         String nome = "ret_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
