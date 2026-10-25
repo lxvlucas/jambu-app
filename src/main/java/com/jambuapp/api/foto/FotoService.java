@@ -66,30 +66,6 @@ public class FotoService {
         }
     }
 
-    public FotoResponse enviarDish(UUID autorId, UUID dishId, MultipartFile arquivo) {
-        return enviarDishBytes(autorId, dishId, lerBytes(arquivo));
-    }
-
-    public FotoResponse enviarDishBytes(UUID autorId, UUID dishId, byte[] bytes) {
-        transacional.validarAutorEDish(autorId, dishId);
-        var imagem = processador.processar(bytes);
-        UUID fotoId = UUID.randomUUID();
-        String chavePrincipal = chavePrincipal(fotoId);
-        String chaveMiniatura = chaveMiniatura(fotoId);
-
-        gravarComRollbackEmFalha(chavePrincipal, imagem.principal(), chaveMiniatura, imagem.miniatura());
-        FotoTransacionalService.ResultadoPersistenciaUpload resultado;
-        try {
-            resultado = transacional.registrarFotoDish(autorId, dishId, fotoId, chavePrincipal, chaveMiniatura, imagem);
-        } catch (RuntimeException ex) {
-            apagarSilenciosamente(chavePrincipal);
-            apagarSilenciosamente(chaveMiniatura);
-            throw ex;
-        }
-        limparSubstituidas(resultado.substituidas());
-        return resultado.resposta();
-    }
-
     public FotoResponse consultarStatus(UUID solicitanteId, String solicitanteUsername, UUID fotoId) {
         return transacional.consultarStatus(solicitanteId, solicitanteUsername, fotoId);
     }

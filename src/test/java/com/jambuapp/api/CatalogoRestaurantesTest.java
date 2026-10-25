@@ -29,6 +29,7 @@ import tools.jackson.databind.json.JsonMapper;
 class CatalogoRestaurantesTest {
     private static final UUID REVISOR = UUID.fromString("21000000-0000-0000-0000-000000000001");
     private static final String SENHA = "Teste-catalogo-123!";
+    private static final byte[] JPEG = jpeg600x800();
     @Autowired AutenticacaoService auth;
     @Autowired CadastroRestauranteService cadastros;
     @Autowired RestauranteService service;
@@ -37,6 +38,7 @@ class CatalogoRestaurantesTest {
     @Autowired RevisaoRestauranteService revisao;
     @Autowired ImportacaoOvertureService importacao;
     @Autowired CotaPlacesService cota;
+    @Autowired com.jambuapp.api.foto.FotoService fotos;
     @Autowired CatalogoProperties config;
     @Autowired JdbcTemplate jdbc;
     @Autowired JsonMapper json;
@@ -145,7 +147,7 @@ class CatalogoRestaurantesTest {
         String sufixo = UUID.randomUUID().toString().substring(0, 8);
         var criado = cadastros.cadastrar(autor, UUID.randomUUID().toString(), manual("Casa Paraense " + sufixo, -2.532, -44.302, Set.of()));
         meals.publicar(autor, UUID.randomUUID().toString(), new MealRequest(criado.restaurante().id(),
-                List.of(new DishRequest(null, "Tacacá " + sufixo, new BigDecimal("4.5"))), null, true, null, null, null));
+                List.of(new DishRequest(null, "Tacacá " + sufixo, new BigDecimal("4.5"))), List.of(foto(autor)), null, true, null, null, null));
         var busca = service.buscar("tacaca " + sufixo, null, false, autor);
         assertThat(busca.locais()).extracting(RestauranteResumo::id).containsExactly(criado.restaurante().id());
         assertThat(places.chamadas.get()).isZero();
@@ -412,9 +414,9 @@ class CatalogoRestaurantesTest {
         publicar(lugar);
         String tokenAutor = token(autor);
         UUID semMeal = conta(), segunda = conta(), terceira = conta(), quarta = conta();
-        meals.publicar(segunda, UUID.randomUUID().toString(), mealEm(lugar));
-        meals.publicar(terceira, UUID.randomUUID().toString(), mealEm(lugar));
-        meals.publicar(quarta, UUID.randomUUID().toString(), mealEm(lugar));
+        meals.publicar(segunda, UUID.randomUUID().toString(), mealEm(segunda, lugar));
+        meals.publicar(terceira, UUID.randomUUID().toString(), mealEm(terceira, lugar));
+        meals.publicar(quarta, UUID.randomUUID().toString(), mealEm(quarta, lugar));
         assertThat(http("POST", caminho, null, confirma, null).statusCode()).isEqualTo(401);
         assertThat(codigo(http("POST", caminho, tokenAutor, confirma, null))).isEqualTo("acesso_negado");
         assertThat(codigo(http("POST", caminho, token(semMeal), confirma, null))).isEqualTo("acesso_negado");
@@ -449,7 +451,7 @@ class CatalogoRestaurantesTest {
         assertThat(podeConfirmar(caminho, token(autor))).isFalse();
         assertThat(podeConfirmar(caminho, token(semMeal))).isFalse();
         assertThat(podeConfirmar(caminho, token(segunda))).isFalse();
-        meals.publicar(segunda, UUID.randomUUID().toString(), mealEm(lugar));
+        meals.publicar(segunda, UUID.randomUUID().toString(), mealEm(segunda, lugar));
         assertThat(podeConfirmar(caminho, token(segunda))).isTrue();
         http("POST", "/api/restaurantes/" + lugar + "/retornos", token(segunda), "{\"tipo\":\"CORRECAO\",\"observacao\":\"Fechou\"}", null);
         assertThat(podeConfirmar(caminho, token(segunda))).isFalse();
@@ -461,7 +463,7 @@ class CatalogoRestaurantesTest {
         // T08 (RN-58): "Corrigir" vai para a revisão dos founders; a revisão do lugar resolve a correção.
         var lugar = cadastrar("Lugar com nome errado " + UUID.randomUUID()).restaurante().id();
         UUID segunda = conta();
-        meals.publicar(segunda, UUID.randomUUID().toString(), mealEm(lugar));
+        meals.publicar(segunda, UUID.randomUUID().toString(), mealEm(segunda, lugar));
         http("POST", "/api/restaurantes/" + lugar + "/retornos", token(segunda),
                 "{\"tipo\":\"CORRECAO\",\"nomeSugerido\":\"Nome certo\",\"observacao\":\"Na placa está outro nome\"}", null);
         assertThat(http("GET", "/api/moderacao/restaurantes/retornos", token(segunda), null, null).statusCode()).isEqualTo(403);
@@ -732,8 +734,15 @@ class CatalogoRestaurantesTest {
         String username = jdbc.queryForObject("select username from usuarios where id = ?", String.class, usuario);
         return auth.login(new LoginRequest(username, SENHA)).token();
     }
-    private MealRequest mealEm(UUID restauranteId) {
-        return new MealRequest(restauranteId, List.of(new DishRequest(null, "Prato", new BigDecimal("4"))), null, null, null, null, null);
+    private MealRequest mealEm(UUID autorMeal, UUID restauranteId) {
+        return new MealRequest(restauranteId, List.of(new DishRequest(null, "Prato", new BigDecimal("4"))), List.of(foto(autorMeal)),
+                null, null, null, null, null);
+    }
+    /** Foto solta da pessoa (T16); sai da fila de moderação para não atrasar os testes de foto. */
+    private UUID foto(UUID autorFoto) {
+        UUID id = fotos.enviarSoltaBytes(autorFoto, JPEG).id();
+        jdbc.update("update tarefas_moderacao set estado = 'CANCELADA' where foto_id = ?", id);
+        return id;
     }
     private boolean podeConfirmar(String caminho, String token) throws Exception {
         var resposta = http("GET", caminho, token, null, null);
@@ -751,7 +760,15 @@ class CatalogoRestaurantesTest {
     }
     private MealResponse publicar(UUID restauranteId) {
         return meals.publicar(autor, UUID.randomUUID().toString(), new MealRequest(restauranteId,
-                List.of(new DishRequest(null, "Prato", new BigDecimal("4.5"))), null, true, null, null, null));
+                List.of(new DishRequest(null, "Prato", new BigDecimal("4.5"))), List.of(foto(autor)), null, true, null, null, null));
+    }
+    private static byte[] jpeg600x800() {
+        try {
+            var imagem = new java.awt.image.BufferedImage(600, 800, java.awt.image.BufferedImage.TYPE_INT_RGB);
+            var saida = new java.io.ByteArrayOutputStream();
+            javax.imageio.ImageIO.write(imagem, "jpg", saida);
+            return saida.toByteArray();
+        } catch (java.io.IOException ex) { throw new IllegalStateException(ex); }
     }
     private ImportacaoOvertureRequest lote(String release, JsonNode feature) {
         return new ImportacaoOvertureRequest(release, List.of("CDLA-Permissive-2.0"), List.of(feature));

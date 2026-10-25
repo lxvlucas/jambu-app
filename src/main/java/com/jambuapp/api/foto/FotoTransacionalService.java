@@ -5,8 +5,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 import com.jambuapp.api.comum.RegraNegocioException;
-import com.jambuapp.api.meal.Dish;
-import com.jambuapp.api.meal.MealRepository;
+import com.jambuapp.api.meal.Meal;
 import com.jambuapp.api.usuario.UsuarioRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -14,26 +13,24 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class FotoTransacionalService {
     public static final java.time.Duration PRAZO_FOTO_SOLTA = java.time.Duration.ofHours(24);
+    /** Uma mensagem para todos os casos: não revela se a foto de outra pessoa existe (decisão de 25/10). */
+    static final String FOTO_INVALIDA = "Foto inválida: envie de novo pelo app e publique em até 24 horas.";
     private final UsuarioRepository usuarios;
-    private final MealRepository meals;
     private final FotoRepository fotos;
     private final FotoPerfilRepository fotosPerfil;
-    private final FotoDishRepository fotosDish;
     private final FotoMealRepository fotosMeal;
     private final TarefaModeracaoRepository tarefas;
     private final RegistroModeracaoRepository registros;
     private final FotoProperties config;
     private final Clock clock;
 
-    public FotoTransacionalService(UsuarioRepository usuarios, MealRepository meals, FotoRepository fotos,
-            FotoPerfilRepository fotosPerfil, FotoDishRepository fotosDish, FotoMealRepository fotosMeal,
+    public FotoTransacionalService(UsuarioRepository usuarios, FotoRepository fotos,
+            FotoPerfilRepository fotosPerfil, FotoMealRepository fotosMeal,
             TarefaModeracaoRepository tarefas, RegistroModeracaoRepository registros,
             FotoProperties config, Clock clock) {
         this.usuarios = usuarios;
-        this.meals = meals;
         this.fotos = fotos;
         this.fotosPerfil = fotosPerfil;
-        this.fotosDish = fotosDish;
         this.fotosMeal = fotosMeal;
         this.tarefas = tarefas;
         this.registros = registros;
@@ -71,10 +68,65 @@ public class FotoTransacionalService {
         return vencidas.size();
     }
 
+    /**
+     * Fotos do post (T16), na transação da publicação ou da edição: cada ID tem de ser foto atual da própria
+     * pessoa, não rejeitada, e solta (enviada há menos de 24 h) ou já deste post. As fotos do post que saíram da
+     * lista são removidas. Devolve as aprovadas, na ordem, e as removidas, para apagar os arquivos após o commit.
+     */
+    @Transactional
+    public ResultadoFotosMeal definirFotosDaMeal(UUID autorId, Meal meal, List<UUID> fotoIds) {
+        Instant agora = agora();
+        Instant limiteSolta = agora.minus(PRAZO_FOTO_SOLTA);
+        Map<UUID, FotoMeal> travadas = new HashMap<>();
+        for (var foto : fotosMeal.buscarParaVincular(fotoIds, meal.getId())) travadas.put(foto.getId(), foto);
+        for (UUID id : fotoIds) {
+            var foto = travadas.get(id);
+            boolean valida = foto != null && foto.getAutor().getId().equals(autorId) && foto.isAtual()
+                    && foto.getStatus() != StatusModeracaoFoto.REJEITADA
+                    && (foto.getMeal() == null ? foto.getCriadaEm().isAfter(limiteSolta) : foto.getMeal().getId().equals(meal.getId()));
+            if (!valida) throw RegraNegocioException.invalido(FOTO_INVALIDA);
+        }
+        List<FotoSubstituida> removidas = new ArrayList<>();
+        for (var foto : travadas.values()) {
+            if (foto.getMeal() != null && !fotoIds.contains(foto.getId())) {
+                cancelarTarefasAtivas(foto.getId(), agora);
+                foto.remover(agora);
+                removidas.add(new FotoSubstituida(foto.getId(), foto.getChaveArquivo(), foto.getChaveMiniatura()));
+            }
+        }
+        List<FotoPublicaResponse> publicas = new ArrayList<>();
+        for (int i = 0; i < fotoIds.size(); i++) {
+            var foto = travadas.get(fotoIds.get(i));
+            foto.vincular(meal, i + 1);
+            var publica = FotoPublicaResponse.de(foto);
+            if (publica != null) publicas.add(publica);
+        }
+        return new ResultadoFotosMeal(List.copyOf(publicas), List.copyOf(removidas));
+    }
+
+    /** Post excluído: todas as fotos dele são removidas. */
+    @Transactional
+    public List<FotoSubstituida> encerrarFotosDaMealExcluida(Meal meal) {
+        Instant agora = agora();
+        List<FotoSubstituida> removidas = new ArrayList<>();
+        for (var foto : fotosMeal.buscarDaMealParaAtualizacao(meal.getId())) {
+            cancelarTarefasAtivas(foto.getId(), agora);
+            foto.remover(agora);
+            removidas.add(new FotoSubstituida(foto.getId(), foto.getChaveArquivo(), foto.getChaveMiniatura()));
+        }
+        return List.copyOf(removidas);
+    }
+
+    /** Fotos aprovadas de cada post, na ordem; post sem foto aprovada não aparece no mapa. */
     @Transactional(readOnly = true)
-    public void validarAutorEDish(UUID autorId, UUID dishId) {
-        var meal = meals.buscarAtivaPorDishId(dishId).orElseThrow(RegraNegocioException::inexistente);
-        if (!meal.getAutor().getId().equals(autorId)) throw RegraNegocioException.proibido();
+    public Map<UUID, List<FotoPublicaResponse>> aprovadasPorMeal(Collection<UUID> mealIds) {
+        if (mealIds.isEmpty()) return Map.of();
+        Map<UUID, List<FotoPublicaResponse>> mapa = new HashMap<>();
+        for (var foto : fotosMeal.buscarAprovadasPorMeals(mealIds)) {
+            var publica = FotoPublicaResponse.de(foto);
+            if (publica != null) mapa.computeIfAbsent(foto.getMeal().getId(), id -> new ArrayList<>()).add(publica);
+        }
+        return mapa;
     }
 
     @Transactional
@@ -98,31 +150,6 @@ public class FotoTransacionalService {
         return new ResultadoPersistenciaUpload(FotoResponse.de(nova), tarefa.getId(), List.copyOf(substituidas));
     }
 
-    @Transactional
-    public ResultadoPersistenciaUpload registrarFotoDish(UUID autorId, UUID dishId, UUID fotoId, String chavePrincipal,
-            String chaveMiniatura, ProcessadorImagemFoto.ImagemProcessada imagem) {
-        var autor = usuarios.buscarParaAtualizacao(autorId).orElseThrow(RegraNegocioException::inexistente);
-        var meal = meals.buscarAtivaPorDishId(dishId).orElseThrow(RegraNegocioException::inexistente);
-        if (!meal.getAutor().getId().equals(autorId)) throw RegraNegocioException.proibido();
-        Dish dish = meal.getDishes().stream().filter(d -> d.getId().equals(dishId)).findFirst()
-                .orElseThrow(RegraNegocioException::inexistente);
-
-        Instant agora = agora();
-        List<FotoSubstituida> substituidas = new ArrayList<>();
-        fotosDish.findByDishAtivoId(dishId).ifPresent(anterior -> {
-            cancelarTarefasAtivas(anterior.getId(), agora);
-            anterior.remover(agora);
-            fotosDish.saveAndFlush(anterior);
-            substituidas.add(new FotoSubstituida(anterior.getId(), anterior.getChaveArquivo(), anterior.getChaveMiniatura()));
-        });
-
-        var nova = fotosDish.saveAndFlush(new FotoDish(
-                fotoId, autor, dish, chavePrincipal, chaveMiniatura, imagem.hashConteudo(),
-                imagem.largura(), imagem.altura(), imagem.principal().length, imagem.miniatura().length, agora));
-        var tarefa = tarefas.saveAndFlush(new TarefaModeracao(nova, config.versaoPolitica(), agora));
-        return new ResultadoPersistenciaUpload(FotoResponse.de(nova), tarefa.getId(), List.copyOf(substituidas));
-    }
-
     @Transactional(readOnly = true)
     public FotoResponse consultarStatus(UUID solicitanteId, String solicitanteUsername, UUID fotoId) {
         var foto = fotos.buscarComAutor(fotoId).orElseThrow(RegraNegocioException::inexistente);
@@ -134,9 +161,6 @@ public class FotoTransacionalService {
     @Transactional(readOnly = true)
     public String obterChaveAprovadaParaLeitura(UUID fotoId, boolean miniatura) {
         var foto = fotos.findById(fotoId).orElseThrow(RegraNegocioException::inexistente);
-        if (foto instanceof FotoDish) {
-            foto = fotosDish.buscarComDishEMeal(fotoId).orElseThrow(RegraNegocioException::inexistente);
-        }
         if (!foto.estaAprovada()) throw RegraNegocioException.inexistente();
         return miniatura ? foto.getChaveMiniatura() : foto.getChaveArquivo();
     }
@@ -145,6 +169,9 @@ public class FotoTransacionalService {
     public FotoSubstituida removerPorAutor(UUID autorId, UUID fotoId) {
         var foto = fotos.buscarParaAtualizacao(fotoId).orElseThrow(RegraNegocioException::inexistente);
         if (!foto.getAutor().getId().equals(autorId)) throw RegraNegocioException.proibido();
+        // Todo post tem pelo menos 1 foto (RN-10): a foto de um post sai pela edição dele.
+        if (foto instanceof FotoMeal fotoMeal && fotoMeal.getMeal() != null)
+            throw RegraNegocioException.conflito("Para tirar esta foto, edite o post.");
         Instant agora = agora();
         cancelarTarefasAtivas(fotoId, agora);
         foto.remover(agora);
@@ -176,44 +203,6 @@ public class FotoTransacionalService {
                 foto, ResultadoModeracao.REVISAR, "Contestação do autor: " + motivo.strip(),
                 config.versaoPolitica(), autorId, agora));
         return FotoResponse.de(foto);
-    }
-
-    @Transactional
-    public List<FotoSubstituida> desassociarFotosDeDishesRemovidos(Collection<UUID> dishIds) {
-        if (dishIds == null || dishIds.isEmpty()) return List.of();
-        List<FotoDish> encontradas = fotosDish.buscarPorDishes(dishIds);
-        if (encontradas.isEmpty()) return List.of();
-        Instant agora = agora();
-        List<FotoSubstituida> removidas = new ArrayList<>();
-        for (FotoDish foto : encontradas) {
-            cancelarTarefasAtivas(foto.getId(), agora);
-            foto.desassociarDishRemovido(agora);
-            fotosDish.saveAndFlush(foto);
-            if (foto.getArquivosLimposEm() == null) {
-                removidas.add(new FotoSubstituida(foto.getId(), foto.getChaveArquivo(), foto.getChaveMiniatura()));
-            }
-        }
-        return List.copyOf(removidas);
-    }
-
-    @Transactional
-    public List<FotoSubstituida> encerrarFotosDeDishesDaMealExcluida(Collection<UUID> dishIds) {
-        if (dishIds == null || dishIds.isEmpty()) return List.of();
-        List<FotoDish> encontradas = fotosDish.buscarPorDishes(dishIds);
-        if (encontradas.isEmpty()) return List.of();
-        Instant agora = agora();
-        List<FotoSubstituida> removidas = new ArrayList<>();
-        for (FotoDish foto : encontradas) {
-            if (foto.isAtual() || foto.getStatus() != StatusModeracaoFoto.REMOVIDA) {
-                cancelarTarefasAtivas(foto.getId(), agora);
-                foto.remover(agora);
-                fotosDish.saveAndFlush(foto);
-            }
-            if (foto.getArquivosLimposEm() == null) {
-                removidas.add(new FotoSubstituida(foto.getId(), foto.getChaveArquivo(), foto.getChaveMiniatura()));
-            }
-        }
-        return List.copyOf(removidas);
     }
 
     @Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
@@ -248,4 +237,5 @@ public class FotoTransacionalService {
 
     public record FotoSubstituida(UUID fotoId, String chaveArquivo, String chaveMiniatura) {}
     public record ResultadoPersistenciaUpload(FotoResponse resposta, UUID tarefaId, List<FotoSubstituida> substituidas) {}
+    public record ResultadoFotosMeal(List<FotoPublicaResponse> publicas, List<FotoSubstituida> removidas) {}
 }

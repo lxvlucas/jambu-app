@@ -13,18 +13,16 @@ import tools.jackson.databind.json.JsonMapper;
 @Service
 public class ModeracaoTransacionalService {
     private final FotoRepository fotos;
-    private final FotoDishRepository fotosDish;
     private final TarefaModeracaoRepository tarefas;
     private final RegistroModeracaoRepository registros;
     private final FotoProperties config;
     private final Clock clock;
     private final JsonMapper json;
 
-    public ModeracaoTransacionalService(FotoRepository fotos, FotoDishRepository fotosDish,
+    public ModeracaoTransacionalService(FotoRepository fotos,
             TarefaModeracaoRepository tarefas, RegistroModeracaoRepository registros,
             FotoProperties config, Clock clock, JsonMapper json) {
         this.fotos = fotos;
-        this.fotosDish = fotosDish;
         this.tarefas = tarefas;
         this.registros = registros;
         this.config = config;
@@ -47,14 +45,6 @@ public class ModeracaoTransacionalService {
             return Optional.empty();
         }
         var foto = fotos.buscarParaAtualizacao(tarefa.getFoto().getId()).orElseThrow();
-        if (foto instanceof FotoDish) {
-            var dishOpt = fotosDish.buscarComDishEMeal(foto.getId());
-            if (dishOpt.isEmpty() || !dishOpt.get().vinculoAtivoParaLeitura()) {
-                tarefa.cancelar(agora);
-                if (foto.isAtual()) foto.remover(agora);
-                return Optional.empty();
-            }
-        }
         if (!foto.isAtual()
                 || (foto.getStatus() != StatusModeracaoFoto.PENDENTE && foto.getStatus() != StatusModeracaoFoto.EM_ANALISE)
                 || !foto.getHashConteudo().equals(tarefa.getHashConteudo())) {

@@ -33,6 +33,11 @@ public class FotoMeal extends Foto {
         this.ordem = null;
     }
 
+    void vincular(Meal meal, int ordem) {
+        this.meal = meal;
+        this.ordem = ordem;
+    }
+
     public Meal getMeal() { return meal; }
     public Integer getOrdem() { return ordem; }
 }

@@ -34,7 +34,6 @@ campos desconhecidos são rejeitados no cadastro e na atualização.
 | `POST /api/usuarios/me/foto` | 201, multipart `arquivo`; envia/substitui foto 3:4 de perfil (`PENDENTE`) |
 | `DELETE /api/usuarios/me/foto` | 204, remove foto de perfil atual |
 | `POST /api/fotos` | 201, multipart `arquivo`; foto do post (T16), solta até entrar numa Meal por `fotoIds`; some em 24 h se não for usada |
-| `POST /api/dishes/{dishId}/foto` | 201, multipart `arquivo`; envia/substitui foto 3:4 do Dish (`PENDENTE`) |
 | `GET /api/fotos/{fotoId}` | Estado da foto (apenas autor ou moderador) |
 | `GET /api/fotos/{fotoId}/conteudo` | Binário `image/jpeg` da foto aprovada (`404` se não aprovada) |
 | `GET /api/fotos/{fotoId}/miniatura` | Binário `image/jpeg` 360×480 da foto aprovada (`404` se não aprovada) |
@@ -233,6 +232,7 @@ envio após falha de rede; use chave nova para uma nova publicação.
     { "nome": "Arroz de cuxá", "nota": 4.5, "comeriaNovamente": true, "preco": 32.50 },
     { "nome": "Peixe", "nota": 5 }
   ],
+  "fotoIds": ["UUID_DA_FOTO_CAPA", "UUID_DA_SEGUNDA_FOTO"],
   "review": "Refeição de teste.",
   "comeriaNovamente": true,
   "modalidade": "PRESENCIAL",
@@ -250,9 +250,17 @@ por padrão; nomes até 150 caracteres; notas de 0,5 a 5 em passos de 0,5.
 Review até 2.000 caracteres por padrão. Não enviar `autorId`, `notaOverall`,
 instantes de auditoria, versão ou IDs de Dishes na criação.
 
+**`fotoIds` (T16) é obrigatório:** de 1 a 10 fotos enviadas antes por `POST /api/fotos`, sem repetir, na
+ordem de exibição (a 1ª é a capa). Cada foto tem de ser da própria pessoa, estar solta (enviada há menos
+de 24 h e ainda sem post) e não ter sido rejeitada. Qualquer foto fora disso (de outra conta, já usada,
+vencida, rejeitada ou inexistente) dá 400 `dados_invalidos` com a mesma mensagem, para não revelar se a
+foto de outra pessoa existe; nada é publicado. Duas publicações simultâneas com a mesma foto: só uma leva.
+
 A resposta inclui id, resumo do autor, referência do restaurante `{ "id": "UUID", "googlePlaceId": "..." }`, Dishes com IDs,
-notaOverall com duas casas, review, comeriaNovamente, modalidade, dataRefeicao,
-publicadaEm, editadaEm e versao. Não inclui contato, hash ou entidade JPA.
+`fotos` (as aprovadas, na ordem do post: `[{ "id", "url", "urlMiniatura" }]`; vazia enquanto nenhuma foi
+aprovada), notaOverall com duas casas, review, comeriaNovamente, modalidade, dataRefeicao,
+publicadaEm, editadaEm e versao. Não inclui contato, hash ou entidade JPA. Desde a T16 os dishes não têm
+mais `foto`: a foto é do post, e a marcação de quais dishes aparecem em cada foto vem na T17.
 
 Repetição equivalente retorna 201 e o snapshot original, mesmo depois de edição
 ou exclusão. Mesma chave com conteúdo diferente retorna 409. A comparação normaliza
@@ -269,6 +277,12 @@ Envie para `PUT` o estado completo dos Dishes, com `versao` recebida na consulta
 Mantenha IDs de pratos existentes; novos pratos não têm ID; pratos omitidos são
 removidos. Todos os IDs informados devem pertencer à Meal e não se repetir. O último
 Dish não pode ser removido. A ordem enviada é persistida.
+
+A edição também manda `fotoIds` (1 a 10): as fotos que o post já tem e, se quiser, fotos soltas novas, na
+ordem desejada. Dá para reordenar e trocar a capa; a foto do post que sai da lista é removida, com os
+arquivos. Foto de outro post ou fora das regras da publicação: 400 `dados_invalidos`. `DELETE
+/api/fotos/{id}` de uma foto que está num post dá 409 `conflito`: ela sai pela edição. Excluir o post
+remove todas as fotos dele.
 
 Versão ausente/desatualizada retorna 409. A edição avança a versão mesmo quando só
 um Dish muda. Data omitida na edição preserva a data existente; review/modalidade
@@ -308,7 +322,7 @@ JPEG/sRGB sem metadados EXIF/GPS (teto de 1 MiB, qualidades 85%→70%), junto de
 
 Toda foto nasce `PENDENTE` com tarefa persistente em `tarefas_moderacao` vinculada ao
 `hash_conteudo` (SHA-256 do JPEG normalizado) e `versao_politica`. Somente `APROVADA`
-aparece em `PerfilResponse.foto` e `DishResponse.foto` (`{ "id": "...", "url": "/api/fotos/.../conteudo", "urlMiniatura": "/api/fotos/.../miniatura" }`)
+aparece em `PerfilResponse.foto` e em `MealResponse.fotos` (`{ "id": "...", "url": "/api/fotos/.../conteudo", "urlMiniatura": "/api/fotos/.../miniatura" }`)
 e libera `/conteudo` e `/miniatura`. Substituir foto cria novo registro/arquivo e invalida
 a versão anterior. Falhas técnicas do provedor de moderação nunca aprovam fotos: aplicam
 retentativa com backoff e, ao atingir o limite de tentativas, encaminham para `EM_REVISAO`.

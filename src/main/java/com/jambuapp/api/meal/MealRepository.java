@@ -9,9 +9,6 @@ import org.springframework.data.jpa.repository.*;
 public interface MealRepository extends JpaRepository<Meal, UUID> {
     @EntityGraph(attributePaths = {"autor", "restaurante", "dishes"})
     Optional<Meal> findByIdAndExcluidaEmIsNull(UUID id);
-    @EntityGraph(attributePaths = {"autor", "restaurante", "dishes"})
-    @Query("select m from Meal m join m.dishes d where d.id = :dishId and m.excluidaEm is null")
-    Optional<Meal> buscarAtivaPorDishId(UUID dishId);
     long countByAutorIdAndExcluidaEmIsNull(UUID autorId);
 
     // Paginação apenas de IDs: nunca limitar um fetch join da coleção de Dishes.

@@ -71,16 +71,25 @@ try {
         @{Autor=1; Chave='meal_3'; Pratos=@(@{nome='Prato demonstrativo C';nota=4.5}); Modalidade='RETIRADA'}
     )
     $ids = @()
+    $arquivoFoto = Get-Item -LiteralPath (Join-Path $PSScriptRoot 'foto-demonstracao.jpg')
     foreach ($exemplo in $exemplos) {
-        $headers = $contas[$exemplo.Autor].Headers.Clone()
-        # Chaves e payloads estáveis: repetir a carga não duplica Meals.
+        $conta = $contas[$exemplo.Autor]
+        # Todo post tem pelo menos 1 foto (T16); a imagem é fictícia (cor lisa), sem pessoas nem metadados.
+        $foto = (Invoke-RestMethod "$base/api/fotos" -Method Post -Headers $conta.Headers -Form @{ arquivo = $arquivoFoto } -TimeoutSec 15)
+        $headers = $conta.Headers.Clone()
+        # Chave estável: repetir a carga não duplica Meals.
         $headers['Idempotency-Key'] = "${Prefixo}:v1:$RestauranteId`:$($exemplo.Chave)"
-        $meal = (Solicitar 'POST' '/api/meals' @{
-            restauranteId=$RestauranteId.ToString(); dishes=$exemplo.Pratos
+        $publicacao = Solicitar 'POST' '/api/meals' @{
+            restauranteId=$RestauranteId.ToString(); dishes=$exemplo.Pratos; fotoIds=@($foto.id)
             review='Conteúdo fictício para demonstração interna; não representa avaliação real do estabelecimento.'
             comeriaNovamente=$true; modalidade=$exemplo.Modalidade; dataRefeicao='2026-10-20'
-        } $headers @(201)).Dados
-        $ids += $meal.id
+        } $headers @(201, 409)
+        if ($publicacao.Status -eq 201) { $ids += $publicacao.Dados.id; continue }
+        # 409: a carga já rodou e a chave guarda o post com a foto daquela vez. A foto nova fica solta e some em 24 h.
+        $proprias = (Solicitar 'GET' "/api/usuarios/$($conta.Id)/meals?limite=50" $null $conta.Headers).Dados
+        $existente = @($proprias.itens | Where-Object { $_.dishes[0].nome -eq $exemplo.Pratos[0].nome }) | Select-Object -First 1
+        if (-not $existente) { throw 'Chave da carga já usada com outro conteúdo, sem o post esperado; confira os dados locais.' }
+        $ids += $existente.id
     }
     $timeline = (Solicitar 'GET' '/api/timeline?limite=50' $null $contas[0].Headers).Dados
     foreach ($id in $ids) {

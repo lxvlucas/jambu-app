@@ -4,8 +4,8 @@ import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import com.jambuapp.api.comum.*;
-import com.jambuapp.api.foto.FotoDishRepository;
 import com.jambuapp.api.foto.FotoPublicaResponse;
+import com.jambuapp.api.foto.FotoTransacionalService;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.*;
@@ -14,19 +14,19 @@ import org.springframework.transaction.annotation.*;
 @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
 public class ConsultaMealService {
     private final MealRepository meals;
-    private final FotoDishRepository fotosDish;
+    private final FotoTransacionalService fotos;
     private final CurtidaService curtidas;
     private final ComentarioService comentarios;
-    public ConsultaMealService(MealRepository meals, FotoDishRepository fotosDish, CurtidaService curtidas,
+    public ConsultaMealService(MealRepository meals, FotoTransacionalService fotos, CurtidaService curtidas,
             ComentarioService comentarios) {
         this.meals = meals;
-        this.fotosDish = fotosDish;
+        this.fotos = fotos;
         this.curtidas = curtidas;
         this.comentarios = comentarios;
     }
     public MealResponse consultar(UUID id) {
         var meal = meals.findByIdAndExcluidaEmIsNull(id).orElseThrow(RegraNegocioException::inexistente);
-        return MealResponse.de(meal, fotosAprovadas(List.of(meal)));
+        return MealResponse.de(meal, fotos.aprovadasPorMeal(List.of(meal.getId())).getOrDefault(meal.getId(), List.of()));
     }
     public PaginaCursor<MealResponse> listar(UUID autor, UUID restaurante, UUID timeline, String cursor, int limite) {
         return pagina(cursor, limite, (posicao, pagina) -> meals.buscarIds(autor, restaurante, timeline,
@@ -59,23 +59,12 @@ public class ConsultaMealService {
         boolean mais = ids.size() > limite;
         var selecionados = ids.subList(0, Math.min(limite, ids.size()));
         var carregadas = meals.buscarCompletas(selecionados);
-        var fotosPorDish = fotosAprovadas(carregadas);
+        Map<UUID, List<FotoPublicaResponse>> fotosPorMeal = fotos.aprovadasPorMeal(selecionados);
         var porId = carregadas.stream().collect(Collectors.toMap(Meal::getId, Function.identity()));
         var ultima = porId.get(selecionados.getLast());
         var item = montador.apply(selecionados);
-        var itens = selecionados.stream().map(porId::get).map(m -> item.apply(m, MealResponse.de(m, fotosPorDish))).toList();
+        var itens = selecionados.stream().map(porId::get)
+                .map(m -> item.apply(m, MealResponse.de(m, fotosPorMeal.getOrDefault(m.getId(), List.of())))).toList();
         return new PaginaCursor<>(itens, mais ? new CursorMeal(ultima.getPublicadaEm(), ultima.getId()).codificar() : null);
-    }
-    private Map<UUID, FotoPublicaResponse> fotosAprovadas(Collection<Meal> listaMeals) {
-        List<UUID> dishIds = listaMeals.stream().flatMap(m -> m.getDishes().stream()).map(Dish::getId).toList();
-        if (dishIds.isEmpty()) return Map.of();
-        Map<UUID, FotoPublicaResponse> mapa = new HashMap<>();
-        for (var foto : fotosDish.buscarAprovadasPorDishes(dishIds)) {
-            var dto = FotoPublicaResponse.de(foto);
-            if (dto != null && foto.getDishAtivoId() != null) {
-                mapa.put(foto.getDishAtivoId(), dto);
-            }
-        }
-        return mapa;
     }
 }

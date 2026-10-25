@@ -75,7 +75,10 @@ try {
     if ($ampliada.estadoExterno -ne 'DESATIVADO' -or $ampliada.locais[0].id -ne $restauranteIdSmoke -or -not $ampliada.podeAdicionar) {
         throw 'A ampliação com Google desativado não preservou o fluxo local.'
     }
-    $pedido = @{ restauranteId=$restauranteIdSmoke; dishes=@(@{ nome='Prato de teste'; nota=4.5 }); comeriaNovamente=$true } | ConvertTo-Json -Depth 5
+    # Todo post tem pelo menos 1 foto (T16): o app envia a foto antes e publica com o id dela.
+    $foto = Invoke-RestMethod "$base/api/fotos" -Method Post -Headers @{ Authorization=$headers.Authorization } `
+        -Form @{ arquivo = Get-Item -LiteralPath (Join-Path $PSScriptRoot 'foto-demonstracao.jpg') }
+    $pedido = @{ restauranteId=$restauranteIdSmoke; dishes=@(@{ nome='Prato de teste'; nota=4.5 }); fotoIds=@($foto.id); comeriaNovamente=$true } | ConvertTo-Json -Depth 5
     $meal = Invoke-RestMethod "$base/api/meals" -Method Post -ContentType 'application/json' -Headers $headers -Body $pedido
     Parar-ApiTeste
     $base = Iniciar-ApiTeste 'reinicializacao'

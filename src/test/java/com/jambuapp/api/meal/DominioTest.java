@@ -25,7 +25,7 @@ class DominioTest {
     @Test
     void impedeRemocaoDoUltimoDish() {
         var meal = meal("5");
-        var request = new MealRequest(UUID.randomUUID(), List.of(), null, true, null, null, 0L);
+        var request = new MealRequest(UUID.randomUUID(), List.of(), List.of(), null, true, null, null, 0L);
         assertThatThrownBy(() -> meal.editar(Restaurante.doPlaces("teste", Instant.now()), request, Instant.now(), LocalDate.now()))
                 .isInstanceOf(RegraNegocioException.class);
     }
@@ -37,7 +37,7 @@ class DominioTest {
     }
     private Meal meal(String... notas) {
         var dishes = Arrays.stream(notas).map(n -> new DishRequest(null, "Prato", new BigDecimal(n))).toList();
-        var request = new MealRequest(UUID.randomUUID(), dishes, null, true, null, null, null);
+        var request = new MealRequest(UUID.randomUUID(), dishes, List.of(), null, true, null, null, null);
         return new Meal(new Usuario("teste", "a@example.test", "98999999999", "hash", Instant.now()),
                 Restaurante.doPlaces("teste", Instant.now()), request, Instant.now(), LocalDate.now());
     }

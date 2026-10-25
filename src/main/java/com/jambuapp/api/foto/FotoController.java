@@ -42,15 +42,6 @@ public class FotoController {
         fotos.removerFotoPerfilAtual(principal.usuarioId());
     }
 
-    @PostMapping(value = {"/api/dishes/{dishId}/foto", "/api/fotos/dishes/{dishId}"}, consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<FotoResponse> enviarDish(@AuthenticationPrincipal UsuarioAutenticado principal,
-            @PathVariable UUID dishId, @RequestParam("arquivo") MultipartFile arquivo) {
-        var resposta = fotos.enviarDish(principal.usuarioId(), dishId, arquivo);
-        return ResponseEntity.created(URI.create("/api/fotos/" + resposta.id()))
-                .cacheControl(CacheControl.noStore())
-                .body(resposta);
-    }
-
     @GetMapping({"/api/fotos/{fotoId}", "/api/fotos/{fotoId}/status"})
     public ResponseEntity<FotoResponse> consultarStatus(@AuthenticationPrincipal UsuarioAutenticado principal,
             @PathVariable UUID fotoId) {
