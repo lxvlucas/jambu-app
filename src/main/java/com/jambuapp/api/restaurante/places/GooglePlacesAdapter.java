@@ -6,7 +6,9 @@ import java.util.concurrent.*;
 import com.jambuapp.api.comum.RegraNegocioException;
 import com.jambuapp.api.restaurante.AreaCatalogo;
 import com.jambuapp.api.restaurante.CotaPlacesService;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.event.EventListener;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -30,6 +32,18 @@ public class GooglePlacesAdapter implements ProvedorRestaurantes {
         this.cota = cota;
         this.area = area;
         this.http = HttpClient.newBuilder().connectTimeout(config.timeout()).followRedirects(HttpClient.Redirect.NEVER).build();
+    }
+    /**
+     * A 1ª chamada depois de subir gastava 2 a 3 s dos 3 s do timeout (JVM e TLS frios). Abre a conexão ao subir,
+     * em segundo plano e sem chave: o Google responde 403, não cobra e nenhum segredo sai do servidor.
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void aquecer() { aquecerConexao(); }
+    CompletableFuture<?> aquecerConexao() {
+        if (!config.habilitado() || config.apiKey().isBlank()) return CompletableFuture.completedFuture(null);
+        var request = HttpRequest.newBuilder(config.baseUrl().resolve("./places:autocomplete")).timeout(config.timeout())
+                .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString("{}")).build();
+        return http.sendAsync(request, HttpResponse.BodyHandlers.discarding()).exceptionally(ex -> null);
     }
     @Override
     public List<SugestaoLugar> sugerir(String termo, UUID tokenSessao) {

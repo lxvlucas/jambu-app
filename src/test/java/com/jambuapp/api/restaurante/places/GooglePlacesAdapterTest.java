@@ -192,6 +192,26 @@ class GooglePlacesAdapterTest {
         verify(cota).reservar();
         assertThat(uri).isNotNull();
     }
+    @Test
+    void aquecimentoAbreConexaoSemChaveSemCotaENuncaFalha() {
+        // A 1ª chamada depois de subir gastava 2 a 3 s dos 3 s do timeout (JVM e TLS frios); o aquecimento paga isso
+        // ao subir, sem chave: o Google responde 403 e não cobra.
+        status = 403;
+        adapter.aquecerConexao().join();
+        assertThat(metodo).isEqualTo("POST");
+        assertThat(uri.toString()).isEqualTo("/v1/places:autocomplete");
+        assertThat(chave).isNull();
+        verify(cota, never()).reservar();
+        // Provedor fora do ar ou lento não derruba nem atrasa a subida.
+        servidor.stop(0);
+        assertThatCode(() -> adapter.aquecerConexao().join()).doesNotThrowAnyException();
+    }
+    @Test
+    void aquecimentoNaoDisparaHttpComPlacesDesligadoOuSemChave() {
+        new GooglePlacesAdapter(config(false, "chave-ficticia", Duration.ofSeconds(1)), json, cota, area).aquecerConexao().join();
+        new GooglePlacesAdapter(config(true, "", Duration.ofSeconds(1)), json, cota, area).aquecerConexao().join();
+        assertThat(uri).isNull();
+    }
     private PlacesProperties config(boolean habilitado, String key, Duration timeout) {
         return new PlacesProperties(habilitado, key, URI.create("http://127.0.0.1:" + servidor.getAddress().getPort() + "/v1/"), timeout, Set.of("restaurant", "cafe"));
     }
