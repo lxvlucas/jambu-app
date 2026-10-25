@@ -320,7 +320,15 @@ A imagem principal é reduzida até `1080 × 1440 px` (sem ampliar menores), ree
 JPEG/sRGB sem metadados EXIF/GPS (teto de 1 MiB, qualidades 85%→70%), junto de miniatura
 `360 × 480 px` (teto de 200 KiB, qualidades 80%→70%).
 
-Toda foto nasce `PENDENTE` com tarefa persistente em `tarefas_moderacao` vinculada ao
+**Moderação desligada (padrão do MVP, `JAMBU_FOTOS_MODERACAO_HABILITADA=false`; T18):** toda foto, do post
+e de perfil, nasce `APROVADA` e aparece para todos na hora, sem tarefa de análise; `registros_moderacao`
+guarda "publicada na hora". A moderação é reativa: quando um moderador reprova a foto de um post (revisão
+`REJEITAR` ou `DELETE /api/moderacao/fotos/{id}`), **o post inteiro é excluído** (some do feed, dos perfis e
+das médias; `GET /api/meals/{id}` dá 404) e todas as fotos dele ficam `REMOVIDA`, com os arquivos apagados;
+não há contestação. Reprovar a foto de perfil só tira a foto. A reprovação automática (moderação ligada)
+só esconde a foto, sem excluir o post.
+
+Com a moderação ligada, toda foto nasce `PENDENTE` com tarefa persistente em `tarefas_moderacao` vinculada ao
 `hash_conteudo` (SHA-256 do JPEG normalizado) e `versao_politica`. Somente `APROVADA`
 aparece em `PerfilResponse.foto` e em `MealResponse.fotos` (`{ "id": "...", "url": "/api/fotos/.../conteudo", "urlMiniatura": "/api/fotos/.../miniatura" }`)
 e libera `/conteudo` e `/miniatura`. Substituir foto cria novo registro/arquivo e invalida

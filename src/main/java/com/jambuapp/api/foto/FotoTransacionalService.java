@@ -52,8 +52,21 @@ public class FotoTransacionalService {
         var nova = fotosMeal.saveAndFlush(new FotoMeal(
                 fotoId, autor, chavePrincipal, chaveMiniatura, imagem.hashConteudo(),
                 imagem.largura(), imagem.altura(), imagem.principal().length, imagem.miniatura().length, agora));
-        var tarefa = tarefas.saveAndFlush(new TarefaModeracao(nova, config.versaoPolitica(), agora));
-        return new ResultadoPersistenciaUpload(FotoResponse.de(nova), tarefa.getId(), List.of());
+        UUID tarefaId = iniciarModeracao(nova, agora);
+        return new ResultadoPersistenciaUpload(FotoResponse.de(nova), tarefaId, List.of());
+    }
+
+    /**
+     * T18 (RN-18, RN-71): com a moderação desligada (MVP), a foto nasce aprovada e não entra na fila; o registro
+     * guarda o porquê. Com ela ligada, cria a tarefa de análise e devolve o ID dela.
+     */
+    private UUID iniciarModeracao(Foto foto, Instant agora) {
+        if (config.moderacaoHabilitada())
+            return tarefas.saveAndFlush(new TarefaModeracao(foto, config.versaoPolitica(), agora)).getId();
+        foto.publicarSemModeracao(agora);
+        registros.save(RegistroModeracao.automatico(foto, ResultadoModeracao.APROVAR,
+                "Publicada na hora: moderação desligada no MVP.", config.versaoPolitica(), null, null, null, agora));
+        return null;
     }
 
     /** Remove as fotos soltas com mais de 24 h; os arquivos saem na limpeza das removidas, logo em seguida. */
@@ -146,8 +159,8 @@ public class FotoTransacionalService {
         var nova = fotosPerfil.saveAndFlush(new FotoPerfil(
                 fotoId, autor, chavePrincipal, chaveMiniatura, imagem.hashConteudo(),
                 imagem.largura(), imagem.altura(), imagem.principal().length, imagem.miniatura().length, agora));
-        var tarefa = tarefas.saveAndFlush(new TarefaModeracao(nova, config.versaoPolitica(), agora));
-        return new ResultadoPersistenciaUpload(FotoResponse.de(nova), tarefa.getId(), List.copyOf(substituidas));
+        UUID tarefaId = iniciarModeracao(nova, agora);
+        return new ResultadoPersistenciaUpload(FotoResponse.de(nova), tarefaId, List.copyOf(substituidas));
     }
 
     @Transactional(readOnly = true)

@@ -1021,6 +1021,43 @@ class JambuApiApplicationTests {
                 Integer.class, fotoId, admin.id())).isEqualTo(1);
     }
 
+    @Test
+    void founderReprovaFotoDoPostEOPostInteiroSaiParaTodos() throws Exception {
+        // T18 (RN-18, F5, decisão de 25/10): reprovar (REJEITAR ou remoção administrativa) exclui o post inteiro;
+        // todas as fotos dele ficam REMOVIDA, com os arquivos apagados. A reprovação fica no histórico.
+        var autor = conta();
+        var leitor = conta();
+        String tokenLeitor = auth.login(new LoginRequest(leitor.username(), SENHA)).token();
+        String tokenAdmin = auth.login(new LoginRequest(garantirModerador().username(), SENHA)).token();
+        UUID impropria = foto(autor.id()), outra = foto(autor.id());
+        var meal = meals.publicar(autor.id(), UUID.randomUUID().toString(), new MealRequest(restaurante,
+                List.of(new DishRequest(null, "Prato", new BigDecimal("4"))), List.of(outra, impropria), null, true, null, null, null));
+        String chaveOutra = jdbc.queryForObject("select chave_arquivo from fotos where id = ?", String.class, outra);
+        var revisao = http("POST", "/api/moderacao/fotos/" + impropria + "/revisao", tokenAdmin,
+                json.writeValueAsString(new RevisaoFotoRequest(ResultadoModeracao.REJEITAR, "Conteúdo impróprio.")), null);
+        assertThat(revisao.statusCode()).isEqualTo(200);
+        assertThat(json.readTree(revisao.body()).path("status").asString()).isEqualTo("REMOVIDA");
+        assertThat(http("GET", "/api/meals/" + meal.id(), tokenLeitor, null, null).statusCode()).isEqualTo(404);
+        assertThat(feedCompleto(tokenLeitor, "PARA_VOCE")).doesNotContain(meal.id());
+        assertThat(jdbc.queryForList("select status from fotos where id in (?, ?)", String.class, impropria, outra)).containsOnly("REMOVIDA");
+        assertThat(armazenamentoFotos.existe(chaveOutra)).isFalse();
+        assertThat(jdbc.queryForObject("select count(*) from registros_moderacao where foto_id = ? and origem = 'HUMANA' and resultado = 'REJEITAR'",
+                Integer.class, impropria)).isEqualTo(1);
+        // A remoção administrativa da foto de um post também tira o post.
+        var segunda = publicar(autor.id(), "3");
+        UUID fotoSegunda = fotosDa(segunda.id()).getFirst();
+        assertThat(http("DELETE", "/api/moderacao/fotos/" + fotoSegunda, tokenAdmin, null, null).statusCode()).isEqualTo(204);
+        assertThat(http("GET", "/api/meals/" + segunda.id(), tokenLeitor, null, null).statusCode()).isEqualTo(404);
+        // A reprovação automática só esconde a foto: o post continua.
+        var terceira = publicar(autor.id(), "5");
+        UUID fotoTerceira = fotosDa(terceira.id()).getFirst();
+        jdbc.update("update tarefas_moderacao set estado = 'AGUARDANDO' where foto_id = ?", fotoTerceira);
+        moderacaoSimulada.sinais = Map.of("explicit_nudity", "95.00");
+        moderacaoService.processar(jdbc.queryForObject("select id from tarefas_moderacao where foto_id = ?", UUID.class, fotoTerceira));
+        assertThat(jdbc.queryForObject("select status from fotos where id = ?", String.class, fotoTerceira)).isEqualTo("REJEITADA");
+        assertThat(http("GET", "/api/meals/" + terceira.id(), tokenLeitor, null, null).statusCode()).isEqualTo(200);
+    }
+
     private ContaResponse garantirModerador() {
         var existente = jdbc.query("select id, username, email, celular from usuarios where lower(username) = 'admin_moderador'",
                 (rs, rowNum) -> new ContaResponse(UUID.fromString(rs.getString("id")), rs.getString("username"),

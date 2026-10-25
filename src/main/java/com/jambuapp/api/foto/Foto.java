@@ -71,6 +71,12 @@ public abstract class Foto {
     protected abstract boolean vinculoAtivoParaLeitura();
     protected abstract void desativarVinculoAtual();
 
+    /** RN-71: com a moderação desligada, a foto nasce aprovada; os founders removem depois o que for impróprio. */
+    void publicarSemModeracao(Instant agora) {
+        this.status = StatusModeracaoFoto.APROVADA;
+        this.atualizadaEm = agora;
+    }
+
     public void iniciarAnalise(Instant agora) {
         if (!atual || status == StatusModeracaoFoto.REMOVIDA)
             throw RegraNegocioException.conflito("Foto não está elegível para análise.");

@@ -78,12 +78,13 @@ public class ModeracaoService {
 
     public FotoResponse revisar(UUID revisorId, String revisorUsername, UUID fotoId,
             ResultadoModeracao resultado, String motivo) {
-        return transacional.revisarHumana(revisorId, revisorUsername, fotoId, resultado, motivo);
+        var revisao = transacional.revisarHumana(revisorId, revisorUsername, fotoId, resultado, motivo);
+        fotoService.limparSubstituidas(revisao.removidas());
+        return revisao.resposta();
     }
 
     public void removerAdministrativamente(UUID revisorId, String revisorUsername, UUID fotoId, String motivo) {
-        var removida = transacional.removerAdministrativamente(revisorId, revisorUsername, fotoId, motivo);
-        fotoService.limparSubstituidas(List.of(removida));
+        fotoService.limparSubstituidas(transacional.removerAdministrativamente(revisorId, revisorUsername, fotoId, motivo));
     }
 
     public byte[] obterConteudoParaModerador(String revisorUsername, UUID fotoId) {
