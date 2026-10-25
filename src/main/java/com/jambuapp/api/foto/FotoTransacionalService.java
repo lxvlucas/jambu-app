@@ -164,9 +164,9 @@ public class FotoTransacionalService {
     }
 
     @Transactional(readOnly = true)
-    public FotoResponse consultarStatus(UUID solicitanteId, String solicitanteUsername, UUID fotoId) {
+    public FotoResponse consultarStatus(UUID solicitanteId, UUID fotoId) {
         var foto = fotos.buscarComAutor(fotoId).orElseThrow(RegraNegocioException::inexistente);
-        if (!foto.getAutor().getId().equals(solicitanteId) && !config.ehModerador(solicitanteUsername))
+        if (!foto.getAutor().getId().equals(solicitanteId) && !config.ehModerador(solicitanteId))
             throw RegraNegocioException.proibido();
         return FotoResponse.de(foto);
     }

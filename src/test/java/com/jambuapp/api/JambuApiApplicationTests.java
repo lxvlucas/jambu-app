@@ -41,6 +41,7 @@ class JambuApiApplicationTests {
     private static final String SENHA = "Senha-ficticia-123!";
     private static final Instant AGORA = Instant.parse("2026-10-19T15:00:00Z");
     private static final byte[] JPEG_TESTE = gerarJpegTeste(600, 800, Color.GRAY);
+    private static final UUID MODERADOR = UUID.fromString("31000000-0000-0000-0000-000000000001");
     @Autowired AutenticacaoService auth;
     @Autowired UsuarioService usuarios;
     @Autowired MealService meals;
@@ -1001,7 +1002,7 @@ class JambuApiApplicationTests {
         assertThat(http("POST", "/api/moderacao/fotos/" + fotoId + "/revisao", tokenAutor,
                 json.writeValueAsString(new RevisaoFotoRequest(ResultadoModeracao.APROVAR, "Tentativa indevida")), null).statusCode()).isEqualTo(403);
 
-        // Moderador configurado em jambu.fotos.moderadores ("admin_moderador") analisa e aprova.
+        // Moderador configurado em jambu.fotos.moderadores (pelo UUID) analisa e aprova.
         var admin = garantirModerador();
         String tokenAdmin = auth.login(new LoginRequest(admin.username(), SENHA)).token();
         var fila = http("GET", "/api/moderacao/fotos?status=EM_REVISAO", tokenAdmin, null, null);
@@ -1058,12 +1059,34 @@ class JambuApiApplicationTests {
         assertThat(http("GET", "/api/meals/" + terceira.id(), tokenLeitor, null, null).statusCode()).isEqualTo(200);
     }
 
+    @Test
+    void nomeDeUsuarioNaoConcedeNemTiraPermissaoDeModeradorDeFoto() throws Exception {
+        // O moderador é o UUID configurado em jambu.fotos.moderadores, como os revisores de restaurantes: quem se
+        // cadastra ou troca para o nome de um moderador não modera, e o moderador que troca de nome continua.
+        var moderador = garantirModerador();
+        String tokenModerador = auth.login(new LoginRequest(moderador.username(), SENHA)).token();
+        var impostor = conta();
+        String tokenImpostor = auth.login(new LoginRequest(impostor.username(), SENHA)).token();
+        String novoNome = "mod_" + UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+        assertThat(http("PUT", "/api/usuarios/me", tokenModerador,
+                json.writeValueAsString(new AtualizarContaRequest(novoNome, moderador.email(), moderador.celular())), null).statusCode()).isEqualTo(200);
+        assertThat(http("PUT", "/api/usuarios/me", tokenImpostor,
+                json.writeValueAsString(new AtualizarContaRequest(moderador.username(), impostor.email(), impostor.celular())), null).statusCode()).isEqualTo(200);
+        assertThat(http("GET", "/api/moderacao/fotos", tokenImpostor, null, null).statusCode()).isEqualTo(403);
+        assertThat(http("GET", "/api/moderacao/fotos", tokenModerador, null, null).statusCode()).isEqualTo(200);
+        UUID fotoDoImpostor = foto(impostor.id());
+        assertThat(http("GET", "/api/fotos/" + fotoDoImpostor, tokenModerador, null, null).statusCode()).isEqualTo(200);
+    }
+
+    /** Conta do moderador com o UUID fixo de jambu.fotos.moderadores (application-test.properties); nome aleatório. */
     private ContaResponse garantirModerador() {
-        var existente = jdbc.query("select id, username, email, celular from usuarios where lower(username) = 'admin_moderador'",
+        var existente = jdbc.query("select id, username, email, celular from usuarios where id = ?",
                 (rs, rowNum) -> new ContaResponse(UUID.fromString(rs.getString("id")), rs.getString("username"),
-                        rs.getString("email"), rs.getString("celular")));
+                        rs.getString("email"), rs.getString("celular")), MODERADOR);
         if (!existente.isEmpty()) return existente.getFirst();
-        return auth.cadastrar(new CadastroRequest("admin_moderador", "admin_moderador@example.test", "98999999999", SENHA));
+        var conta = conta();
+        jdbc.update("update usuarios set id = ? where id = ?", MODERADOR, conta.id());
+        return new ContaResponse(MODERADOR, conta.username(), conta.email(), conta.celular());
     }
 
     private static byte[] gerarJpegTeste(int largura, int altura, Color cor) {

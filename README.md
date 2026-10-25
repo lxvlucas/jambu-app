@@ -137,7 +137,7 @@ globais nem interfaces de service sem necessidade. `Dish` é persistido pelo agr
 | `JAMBU_FOTOS_MODERACAO_HABILITADA` | `false`; ativação explícita do provedor externo de moderação |
 | `JAMBU_FOTOS_MODERACAO_PROVEDOR` | `rekognition` |
 | `JAMBU_FOTOS_MODERACAO_BASE_URL`, `JAMBU_FOTOS_MODERACAO_API_KEY`, `JAMBU_FOTOS_MODERACAO_TIMEOUT` | Endpoint HTTPS AWS (ou simulador `127.0.0.1`), credencial e timeout (`PT5S` até `PT30S`) |
-| `JAMBU_MODERADORES_USERNAMES` | Lista separada por vírgula de usernames autorizados nos endpoints `/api/moderacao/fotos` |
+| `JAMBU_MODERADORES_FOTOS` | UUIDs das contas autorizadas nos endpoints `/api/moderacao/fotos`, separados por vírgula; vazio não concede acesso. Pelo UUID, e não pelo nome de usuário, porque qualquer pessoa pode escolher ou trocar o nome (substitui `JAMBU_MODERADORES_USERNAMES`, que deixou de ser lida) |
 
 `jambu.auth.*` configura acesso de 15 minutos, inatividade de 30 dias e limite
 absoluto de 180 dias. `jambu.limite-autenticacao-minuto` começa em 20 tentativas

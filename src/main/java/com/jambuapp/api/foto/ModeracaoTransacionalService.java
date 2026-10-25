@@ -130,9 +130,9 @@ public class ModeracaoTransacionalService {
     }
 
     @Transactional
-    public ResultadoRevisao revisarHumana(UUID revisorId, String revisorUsername, UUID fotoId,
+    public ResultadoRevisao revisarHumana(UUID revisorId, UUID fotoId,
             ResultadoModeracao resultado, String motivo) {
-        exigirModerador(revisorUsername);
+        exigirModerador(revisorId);
         if (resultado == null || resultado == ResultadoModeracao.FALHA_TECNICA)
             throw RegraNegocioException.invalido("Revisão humana exige APROVAR, REJEITAR ou REVISAR.");
         if (motivo == null || motivo.isBlank() || motivo.strip().length() > 500)
@@ -166,9 +166,9 @@ public class ModeracaoTransacionalService {
     public record ResultadoRevisao(FotoResponse resposta, List<FotoSubstituida> removidas) {}
 
     @Transactional
-    public List<FotoSubstituida> removerAdministrativamente(UUID revisorId, String revisorUsername,
+    public List<FotoSubstituida> removerAdministrativamente(UUID revisorId,
             UUID fotoId, String motivo) {
-        exigirModerador(revisorUsername);
+        exigirModerador(revisorId);
         if (motivo == null || motivo.isBlank() || motivo.strip().length() > 500)
             throw RegraNegocioException.invalido("Informe um motivo administrativo com até 500 caracteres.");
 
@@ -190,25 +190,25 @@ public class ModeracaoTransacionalService {
     }
 
     @Transactional(readOnly = true)
-    public String obterChaveParaInspecaoModerador(String revisorUsername, UUID fotoId) {
-        exigirModerador(revisorUsername);
+    public String obterChaveParaInspecaoModerador(UUID revisorId, UUID fotoId) {
+        exigirModerador(revisorId);
         var foto = fotos.findById(fotoId).orElseThrow(RegraNegocioException::inexistente);
         if (foto.getArquivosLimposEm() != null) throw RegraNegocioException.inexistente();
         return foto.getChaveArquivo();
     }
 
     @Transactional(readOnly = true)
-    public FotoModeracaoAdminResponse consultarDetalheAdmin(String revisorUsername, UUID fotoId) {
-        exigirModerador(revisorUsername);
+    public FotoModeracaoAdminResponse consultarDetalheAdmin(UUID revisorId, UUID fotoId) {
+        exigirModerador(revisorId);
         var foto = fotos.buscarComAutor(fotoId).orElseThrow(RegraNegocioException::inexistente);
         var hist = registros.findByFotoIdOrderByCriadoEmAscIdAsc(fotoId);
         return FotoModeracaoAdminResponse.de(foto, hist);
     }
 
     @Transactional(readOnly = true)
-    public PaginaResponse<FotoModeracaoAdminResponse> listarFilaAdmin(String revisorUsername,
+    public PaginaResponse<FotoModeracaoAdminResponse> listarFilaAdmin(UUID revisorId,
             StatusModeracaoFoto status, int pagina, int limite) {
-        exigirModerador(revisorUsername);
+        exigirModerador(revisorId);
         var pageable = Paginacao.pagina(pagina, limite, "criadaEm");
         Page<Foto> page = status == null
                 ? fotos.findAllByOrderByCriadaEmDescIdDesc(pageable)
@@ -217,8 +217,8 @@ public class ModeracaoTransacionalService {
                 f, registros.findByFotoIdOrderByCriadoEmAscIdAsc(f.getId()))));
     }
 
-    public void exigirModerador(String username) {
-        if (!config.ehModerador(username)) throw RegraNegocioException.proibido();
+    public void exigirModerador(UUID usuarioId) {
+        if (!config.ehModerador(usuarioId)) throw RegraNegocioException.proibido();
     }
 
     private Instant agora() {

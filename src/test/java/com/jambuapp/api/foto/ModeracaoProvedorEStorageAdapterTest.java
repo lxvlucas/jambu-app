@@ -201,6 +201,6 @@ class ModeracaoProvedorEStorageAdapterTest {
                 URI.create("http://127.0.0.1:" + servidor.getAddress().getPort() + "/moderacao"),
                 chave, timeout, "2026-10-v1", 80.0, 40.0, 3,
                 Duration.ofSeconds(1), Duration.ofSeconds(30), 10, false, Duration.ofDays(7),
-                1_048_576, 204_800, Set.of("admin_moderador"));
+                1_048_576, 204_800, Set.of(java.util.UUID.fromString("31000000-0000-0000-0000-000000000001")));
     }
 }

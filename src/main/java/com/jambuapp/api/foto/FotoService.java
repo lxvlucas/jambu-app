@@ -66,8 +66,8 @@ public class FotoService {
         }
     }
 
-    public FotoResponse consultarStatus(UUID solicitanteId, String solicitanteUsername, UUID fotoId) {
-        return transacional.consultarStatus(solicitanteId, solicitanteUsername, fotoId);
+    public FotoResponse consultarStatus(UUID solicitanteId, UUID fotoId) {
+        return transacional.consultarStatus(solicitanteId, fotoId);
     }
 
     public byte[] obterConteudoAprovado(UUID fotoId) {

@@ -47,7 +47,7 @@ public class FotoController {
             @PathVariable UUID fotoId) {
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
-                .body(fotos.consultarStatus(principal.usuarioId(), principal.username(), fotoId));
+                .body(fotos.consultarStatus(principal.usuarioId(), fotoId));
     }
 
     @GetMapping("/api/fotos/{fotoId}/conteudo")

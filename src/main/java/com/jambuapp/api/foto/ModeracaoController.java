@@ -25,7 +25,7 @@ public class ModeracaoController {
             @RequestParam(defaultValue = "20") int limite) {
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
-                .body(moderacao.listarFila(principal.username(), status, pagina, limite));
+                .body(moderacao.listarFila(principal.usuarioId(), status, pagina, limite));
     }
 
     @GetMapping("/{fotoId}")
@@ -34,14 +34,14 @@ public class ModeracaoController {
             @PathVariable UUID fotoId) {
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
-                .body(moderacao.consultarDetalhe(principal.username(), fotoId));
+                .body(moderacao.consultarDetalhe(principal.usuarioId(), fotoId));
     }
 
     @GetMapping("/{fotoId}/conteudo")
     public ResponseEntity<byte[]> obterConteudoParaRevisao(
             @AuthenticationPrincipal UsuarioAutenticado principal,
             @PathVariable UUID fotoId) {
-        return FotoController.respostaImagem(moderacao.obterConteudoParaModerador(principal.username(), fotoId));
+        return FotoController.respostaImagem(moderacao.obterConteudoParaModerador(principal.usuarioId(), fotoId));
     }
 
     @PostMapping("/{fotoId}/revisao")
@@ -51,7 +51,7 @@ public class ModeracaoController {
             @Valid @RequestBody RevisaoFotoRequest request) {
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
-                .body(moderacao.revisar(principal.usuarioId(), principal.username(), fotoId, request.resultado(), request.motivo()));
+                .body(moderacao.revisar(principal.usuarioId(), fotoId, request.resultado(), request.motivo()));
     }
 
     @DeleteMapping("/{fotoId}")
@@ -60,6 +60,6 @@ public class ModeracaoController {
             @AuthenticationPrincipal UsuarioAutenticado principal,
             @PathVariable UUID fotoId,
             @RequestParam(defaultValue = "Removida pela moderação") String motivo) {
-        moderacao.removerAdministrativamente(principal.usuarioId(), principal.username(), fotoId, motivo);
+        moderacao.removerAdministrativamente(principal.usuarioId(), fotoId, motivo);
     }
 }

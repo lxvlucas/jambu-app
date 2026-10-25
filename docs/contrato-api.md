@@ -39,7 +39,7 @@ campos desconhecidos são rejeitados no cadastro e na atualização.
 | `GET /api/fotos/{fotoId}/miniatura` | Binário `image/jpeg` 360×480 da foto aprovada (`404` se não aprovada) |
 | `POST /api/fotos/{fotoId}/contestacao` | Autor contesta foto `REJEITADA`, encaminhando para `EM_REVISAO` |
 | `DELETE /api/fotos/{fotoId}` | 204, autor remove a própria foto |
-| `GET /api/moderacao/fotos` | Lista paginada de fotos para moderadores configurados |
+| `GET /api/moderacao/fotos` | Lista paginada de fotos para moderadores configurados (UUIDs em `JAMBU_MODERADORES_FOTOS`; o nome de usuário não conta) |
 | `GET /api/moderacao/fotos/{fotoId}` | Detalhe administrativo e histórico `registros_moderacao` |
 | `GET /api/moderacao/fotos/{fotoId}/conteudo` | Binário para inspeção do moderador |
 | `POST /api/moderacao/fotos/{fotoId}/revisao` | Decisão humana (`APROVAR`, `REJEITAR`, `REVISAR`) com motivo e auditoria |
