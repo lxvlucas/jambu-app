@@ -26,7 +26,7 @@ public class FotoService {
     }
 
     public FotoResponse enviarPerfilBytes(UUID autorId, byte[] bytes) {
-        transacional.validarAutorPerfil(autorId);
+        transacional.validarAutor(autorId);
         var imagem = processador.processar(bytes);
         UUID fotoId = UUID.randomUUID();
         String chavePrincipal = chavePrincipal(fotoId);
@@ -43,6 +43,27 @@ public class FotoService {
         }
         limparSubstituidas(resultado.substituidas());
         return resultado.resposta();
+    }
+
+    public FotoResponse enviarSolta(UUID autorId, MultipartFile arquivo) {
+        return enviarSoltaBytes(autorId, lerBytes(arquivo));
+    }
+
+    public FotoResponse enviarSoltaBytes(UUID autorId, byte[] bytes) {
+        transacional.validarAutor(autorId);
+        var imagem = processador.processar(bytes);
+        UUID fotoId = UUID.randomUUID();
+        String chavePrincipal = chavePrincipal(fotoId);
+        String chaveMiniatura = chaveMiniatura(fotoId);
+
+        gravarComRollbackEmFalha(chavePrincipal, imagem.principal(), chaveMiniatura, imagem.miniatura());
+        try {
+            return transacional.registrarFotoSolta(autorId, fotoId, chavePrincipal, chaveMiniatura, imagem).resposta();
+        } catch (RuntimeException ex) {
+            apagarSilenciosamente(chavePrincipal);
+            apagarSilenciosamente(chaveMiniatura);
+            throw ex;
+        }
     }
 
     public FotoResponse enviarDish(UUID autorId, UUID dishId, MultipartFile arquivo) {
@@ -96,6 +117,7 @@ public class FotoService {
     }
 
     public int limparArquivosExpiradosEOrfaos() {
+        transacional.removerSoltasVencidas();
         int removidos = 0;
         var elegiveis = transacional.listarElegiveisParaLimpeza();
         for (var item : elegiveis) {

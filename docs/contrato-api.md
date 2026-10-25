@@ -33,6 +33,7 @@ campos desconhecidos são rejeitados no cadastro e na atualização.
 | `GET /api/usuarios/{id}/meals` | Meals ativas, por cursor |
 | `POST /api/usuarios/me/foto` | 201, multipart `arquivo`; envia/substitui foto 3:4 de perfil (`PENDENTE`) |
 | `DELETE /api/usuarios/me/foto` | 204, remove foto de perfil atual |
+| `POST /api/fotos` | 201, multipart `arquivo`; foto do post (T16), solta até entrar numa Meal por `fotoIds`; some em 24 h se não for usada |
 | `POST /api/dishes/{dishId}/foto` | 201, multipart `arquivo`; envia/substitui foto 3:4 do Dish (`PENDENTE`) |
 | `GET /api/fotos/{fotoId}` | Estado da foto (apenas autor ou moderador) |
 | `GET /api/fotos/{fotoId}/conteudo` | Binário `image/jpeg` da foto aprovada (`404` se não aprovada) |
@@ -311,3 +312,8 @@ aparece em `PerfilResponse.foto` e `DishResponse.foto` (`{ "id": "...", "url": "
 e libera `/conteudo` e `/miniatura`. Substituir foto cria novo registro/arquivo e invalida
 a versão anterior. Falhas técnicas do provedor de moderação nunca aprovam fotos: aplicam
 retentativa com backoff e, ao atingir o limite de tentativas, encaminham para `EM_REVISAO`.
+
+**Foto do post (T16).** O app envia cada foto com `POST /api/fotos` quando a pessoa toca em Publicar (o
+rascunho guarda as fotos no aparelho) e recebe o `id`. Até entrar numa Meal, a foto fica **solta**: só o
+autor consulta o estado em `/api/fotos/{id}`, `/conteudo` e `/miniatura` dão 404, e ela passa pela mesma
+moderação. Foto solta com mais de 24 h é removida, com os arquivos, pelo agendador da limpeza.

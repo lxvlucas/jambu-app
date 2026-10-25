@@ -13,18 +13,20 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class FotoTransacionalService {
+    public static final java.time.Duration PRAZO_FOTO_SOLTA = java.time.Duration.ofHours(24);
     private final UsuarioRepository usuarios;
     private final MealRepository meals;
     private final FotoRepository fotos;
     private final FotoPerfilRepository fotosPerfil;
     private final FotoDishRepository fotosDish;
+    private final FotoMealRepository fotosMeal;
     private final TarefaModeracaoRepository tarefas;
     private final RegistroModeracaoRepository registros;
     private final FotoProperties config;
     private final Clock clock;
 
     public FotoTransacionalService(UsuarioRepository usuarios, MealRepository meals, FotoRepository fotos,
-            FotoPerfilRepository fotosPerfil, FotoDishRepository fotosDish,
+            FotoPerfilRepository fotosPerfil, FotoDishRepository fotosDish, FotoMealRepository fotosMeal,
             TarefaModeracaoRepository tarefas, RegistroModeracaoRepository registros,
             FotoProperties config, Clock clock) {
         this.usuarios = usuarios;
@@ -32,6 +34,7 @@ public class FotoTransacionalService {
         this.fotos = fotos;
         this.fotosPerfil = fotosPerfil;
         this.fotosDish = fotosDish;
+        this.fotosMeal = fotosMeal;
         this.tarefas = tarefas;
         this.registros = registros;
         this.config = config;
@@ -39,8 +42,33 @@ public class FotoTransacionalService {
     }
 
     @Transactional(readOnly = true)
-    public void validarAutorPerfil(UUID autorId) {
+    public void validarAutor(UUID autorId) {
         if (!usuarios.existsById(autorId)) throw RegraNegocioException.inexistente();
+    }
+
+    /** T16: foto do post enviada antes da publicação; fica solta, da pessoa, até entrar numa Meal. */
+    @Transactional
+    public ResultadoPersistenciaUpload registrarFotoSolta(UUID autorId, UUID fotoId, String chavePrincipal,
+            String chaveMiniatura, ProcessadorImagemFoto.ImagemProcessada imagem) {
+        var autor = usuarios.findById(autorId).orElseThrow(RegraNegocioException::inexistente);
+        Instant agora = agora();
+        var nova = fotosMeal.saveAndFlush(new FotoMeal(
+                fotoId, autor, chavePrincipal, chaveMiniatura, imagem.hashConteudo(),
+                imagem.largura(), imagem.altura(), imagem.principal().length, imagem.miniatura().length, agora));
+        var tarefa = tarefas.saveAndFlush(new TarefaModeracao(nova, config.versaoPolitica(), agora));
+        return new ResultadoPersistenciaUpload(FotoResponse.de(nova), tarefa.getId(), List.of());
+    }
+
+    /** Remove as fotos soltas com mais de 24 h; os arquivos saem na limpeza das removidas, logo em seguida. */
+    @Transactional
+    public int removerSoltasVencidas() {
+        Instant agora = agora();
+        var vencidas = fotosMeal.buscarSoltasVencidas(agora.minus(PRAZO_FOTO_SOLTA));
+        for (var foto : vencidas) {
+            cancelarTarefasAtivas(foto.getId(), agora);
+            foto.remover(agora);
+        }
+        return vencidas.size();
     }
 
     @Transactional(readOnly = true)

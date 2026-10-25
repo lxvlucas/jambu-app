@@ -733,6 +733,35 @@ class JambuApiApplicationTests {
     }
 
     @Test
+    void fotoSoltaDoPostSoOAutorConsultaENaoUsadaSaiEm24Horas() throws Exception {
+        // T16 (P-04): o app envia a foto ao tocar em Publicar; até entrar numa Meal ela é da pessoa e não é pública.
+        var autor = conta();
+        var outro = conta();
+        String tokenAutor = auth.login(new LoginRequest(autor.username(), SENHA)).token();
+        String tokenOutro = auth.login(new LoginRequest(outro.username(), SENHA)).token();
+        byte[] jpeg = gerarJpegTeste(600, 800, Color.ORANGE);
+        assertThat(httpMultipart("/api/fotos", null, jpeg).statusCode()).isEqualTo(401);
+        var envio = httpMultipart("/api/fotos", tokenAutor, jpeg);
+        assertThat(envio.statusCode()).isEqualTo(201);
+        assertThat(envio.headers().firstValue("Cache-Control")).hasValue("no-store");
+        UUID fotoId = UUID.fromString(json.readTree(envio.body()).path("id").asString());
+        assertThat(jdbc.queryForObject("select meal_id is null from fotos_meal where id = ?", Boolean.class, fotoId)).isTrue();
+        assertThat(http("GET", "/api/fotos/" + fotoId, tokenOutro, null, null).statusCode()).isEqualTo(403);
+        assertThat(http("GET", "/api/fotos/" + fotoId, tokenAutor, null, null).statusCode()).isEqualTo(200);
+        processadorModeracao.processarLote();
+        assertThat(httpBytes("/api/fotos/" + fotoId + "/conteudo", tokenAutor).statusCode()).isEqualTo(404);
+        String chave = jdbc.queryForObject("select chave_arquivo from fotos where id = ?", String.class, fotoId);
+        clock.agora = clock.agora.plus(Duration.ofHours(23));
+        fotoService.limparArquivosExpiradosEOrfaos();
+        assertThat(jdbc.queryForObject("select status from fotos where id = ?", String.class, fotoId)).isNotEqualTo("REMOVIDA");
+        assertThat(armazenamentoFotos.existe(chave)).isTrue();
+        clock.agora = clock.agora.plus(Duration.ofHours(1));
+        fotoService.limparArquivosExpiradosEOrfaos();
+        assertThat(jdbc.queryForObject("select status from fotos where id = ?", String.class, fotoId)).isEqualTo("REMOVIDA");
+        assertThat(armazenamentoFotos.existe(chave)).isFalse();
+    }
+
+    @Test
     void uploadFotoPerfilEDishPermanecePrivadoAteAprovacaoESubstituicaoCriaNovaVersao() throws Exception {
         var autor = conta();
         var leitor = conta();
